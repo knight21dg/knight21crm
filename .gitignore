@@ -1,0 +1,49 @@
+# Composer-managed PHP dependencies - reproducible via `composer install`
+# against application/composer.json, not source code.
+application/vendor/
+
+# CodeIgniter runtime cache
+application/cache/*
+!application/cache/index.html
+!application/cache/.htaccess
+
+# CodeIgniter runtime logs
+application/logs/*.php
+
+# User-uploaded runtime content (client documents, invoices, profile images,
+# etc.) - regenerated on demand by the app itself, not source code.
+uploads/*
+!uploads/index.html
+
+# Local debugging/one-off scripts and captured responses left over from
+# development - never part of the shipped application.
+/temp/
+/cookies.txt
+/edit_lead_34.html
+/edit_lead_34_v2.html
+/expenses_page.html
+/resp.txt
+/test.php
+/test_expenses.php
+/test_render.php
+
+# Dependency managers / build tooling (none currently present, kept as a
+# guard for future additions)
+node_modules/
+vendor/
+
+# Environment / secrets
+.env
+.env.*
+
+# IDE/editor
+.idea/
+.vscode/
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Generic logs and editor swap files
+*.log
+*.swp

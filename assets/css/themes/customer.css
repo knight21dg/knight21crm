@@ -1,0 +1,38 @@
+:root {
+  --primary: #F97316;
+  --primary-hover: #EA580C;
+  --primary-light: #FFF7ED;
+  --primary-light-hover: #FFEDD5;
+
+  --navbar-bg: linear-gradient(180deg, #9A3412 0%, #C2410C 100%);
+  --navbar-text: #fff;
+  --navbar-active-bg: #C2410C;
+  --navbar-active-text: #fff;
+  --navbar-hover-bg: #C2410C;
+  --navbar-border: #7A2A0E;
+
+  --body-bg: #FFF7ED;
+
+  --input-focus-border: #F97316;
+  --input-focus-shadow: 0 0 0 3px rgba(249,115,22,.15);
+
+  --table-header-bg: #FFF7ED;
+
+  --navbar-glass-bg: rgba(255,255,255,0.9);
+  --navbar-top-strip: linear-gradient(90deg, #F97316, #C2410C);
+  --search-bg: #FFF7ED;
+  --scrollbar-thumb: #FDBA74;
+  --empty-color: #FDBA74;
+
+  --pagination-active-bg: #F97316;
+  --tab-active-border: #F97316;
+  --tab-active-color: #F97316;
+  --focus-ring: 0 0 0 3px rgba(249,115,22,.15);
+  --heading-color: #0f172a;
+  --text-color: #334155;
+  --text-muted: #64748b;
+  --table-row-hover: #FFF7ED;
+  --table-header-color: #1e293b;
+  --card-bg: #fff;
+  --card-hover-shadow: 0 12px 25px rgba(0,0,0,.08);
+}

@@ -1,0 +1,41 @@
+:root {
+  --primary: #7C3AED;
+  --primary-hover: #6D28D9;
+  --primary-light: #F5F3FF;
+  --primary-light-hover: #EDE9FE;
+
+  --sidebar-bg: linear-gradient(180deg, #2E1065 0%, #4C1D95 100%);
+  --sidebar-border: transparent;
+  --sidebar-text: #DDD6FE;
+  --sidebar-text-active: #fff;
+  --sidebar-icon: #A78BFA;
+  --sidebar-second-level-text: #C4B5FD;
+  --sidebar-hover-bg: #4C1D95;
+  --sidebar-hover-border: #7C3AED;
+  --sidebar-heading-text: #DDD6FE;
+
+  --navbar-bg: #fff;
+  --navbar-text: #374151;
+  --navbar-active-bg: #F5F3FF;
+
+  --body-bg: #F5F3FF;
+  --wrapper-bg: #F5F3FF;
+
+  --input-focus-border: #7C3AED;
+  --input-focus-shadow: 0 0 0 3px rgba(124,58,237,.15);
+
+  --pagination-active-bg: #7C3AED;
+
+  --tab-active-border: #7C3AED;
+  --tab-active-color: #7C3AED;
+
+  --navbar-glass-bg: rgba(255,255,255,0.9);
+  --search-bg: #F5F3FF;
+  --scrollbar-thumb: #A78BFA;
+  --empty-color: #A78BFA;
+
+  --focus-ring: 0 0 0 3px rgba(124,58,237,.15);
+  --heading-color: #111827;
+  --text-color: #111827;
+  --text-muted: #6b7280;
+}

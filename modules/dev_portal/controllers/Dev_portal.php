@@ -1,0 +1,494 @@
+<?php
+
+defined('BASEPATH') or exit('No direct script access allowed');
+
+/**
+ * Development Portal - Dashboard, My Projects, My Tasks (Phase 1). One
+ * controller for the whole module, same convention as
+ * modules/follow_up_management and modules/staff_attendance - Admin vs.
+ * portal-staff scoping is enforced server-side in every table query via
+ * Dev_portal_model::get_my_projects_where()/get_my_tasks_where(), not
+ * just hidden UI.
+ */
+class Dev_portal extends AdminController
+{
+    public function __construct()
+    {
+        parent::__construct();
+
+        if (!is_dev_portal_member()) {
+            access_denied('Development Portal');
+        }
+
+        $this->load->model('dev_portal/dev_portal_model');
+        $this->load->model('dev_portal/dev_worklog_model');
+        $this->load->model('tasks_model');
+        $this->load->model('projects_model');
+        $this->lang->load('dev_portal/dev_portal', 'english');
+    }
+
+    /**
+     * Shared authorization check for every Project Workspace action -
+     * Admin or a real tblproject_members row (Projects_model::is_member(),
+     * the exact same check Projects::view() itself uses), never trusting
+     * the client. Every workspace action below calls this before doing
+     * anything else, so direct URL access to another employee's project
+     * (or to a project belonging to a department outside this portal)
+     * is denied identically everywhere, not re-implemented per action.
+     *
+     * @param  int  $project_id
+     * @param  bool $is_ajax
+     * @return void dies via access_denied()/ajax_access_denied() if unauthorized
+     */
+    private function authorize_project_access($project_id, $is_ajax = false)
+    {
+        if (is_admin() || $this->projects_model->is_member($project_id)) {
+            return;
+        }
+
+        if ($is_ajax) {
+            ajax_access_denied();
+        }
+
+        access_denied('Development Portal');
+    }
+
+    /**
+     * Finds (or creates, on first use) the single shared discussion
+     * thread this Workspace's "Comments" section posts to - reuses
+     * Perfex's real Discussions machinery (tblprojectdiscussions/
+     * tblprojectdiscussioncomments, Projects_model::add_discussion()/
+     * add_discussion_comment()) rather than a new comments table. A
+     * fixed marker subject identifies "the" Development Portal thread
+     * for a project so repeated calls reuse the same thread instead of
+     * creating a new one every time; Admin sees this exact same thread
+     * under the native Projects -> Discussions tab, since it's the same
+     * underlying data.
+     *
+     * @param  int $project_id
+     * @return int discussion id
+     */
+    private function get_or_create_workspace_discussion($project_id)
+    {
+        $marker = 'Development Portal';
+
+        foreach ($this->projects_model->get_discussions($project_id) as $discussion) {
+            if ($discussion['subject'] === $marker) {
+                return (int) $discussion['id'];
+            }
+        }
+
+        $this->projects_model->add_discussion([
+            'project_id'       => $project_id,
+            'subject'          => $marker,
+            'description'      => 'Development Portal comment thread.',
+            'show_to_customer' => 0,
+        ]);
+
+        foreach ($this->projects_model->get_discussions($project_id) as $discussion) {
+            if ($discussion['subject'] === $marker) {
+                return (int) $discussion['id'];
+            }
+        }
+
+        return 0;
+    }
+
+    public function index()
+    {
+        $this->dashboard();
+    }
+
+    /**
+     * Today's Tasks / Assigned Projects / Completed Tasks / Upcoming
+     * Deadlines from Dev_portal_model::get_dashboard_summary(); Today's
+     * Attendance reuses Staff_attendance_model directly rather than a
+     * wrapper - Admin gets the cross-department summary
+     * (get_today_summary(), already built for that module's own
+     * dashboard widget), a portal staff member gets just their own
+     * status for today.
+     */
+    public function dashboard()
+    {
+        $staff_id = get_staff_user_id();
+        $is_admin = is_admin();
+
+        $data['title']   = _l('dev_portal_dashboard');
+        $data['summary'] = $this->dev_portal_model->get_dashboard_summary($staff_id, $is_admin);
+
+        $this->load->model('staff_attendance/staff_attendance_model');
+
+        if ($is_admin) {
+            $data['attendance_summary'] = $this->staff_attendance_model->get_today_summary();
+            $data['attendance_is_admin'] = true;
+        } else {
+            $today_record = $this->staff_attendance_model->get_staff_date_record($staff_id);
+            $data['attendance_summary']  = $today_record ? $today_record->attendance_status : null;
+            $data['attendance_is_admin'] = false;
+        }
+
+        $this->load->view('dashboard', $data);
+    }
+
+    public function my_projects()
+    {
+        $data['title'] = _l('dev_portal_my_projects');
+        $this->load->view('my_projects', $data);
+    }
+
+    /**
+     * My Projects DataTable source - self-contained (query built here
+     * directly, same style as modules/staff_attendance's own table()
+     * method) rather than a separate file under
+     * application/views/admin/tables/, keeping this module fully
+     * contained.
+     *
+     * Column order note: $aColumns lists the 7 real, 1:1 SQL columns in
+     * the exact order they're rendered (Project Name/Client/Project
+     * Type/Assigned Date/Due Date/Status/Progress). Priority has no real
+     * column (see get_my_projects_priority() below) and is appended
+     * after the loop, same "derived columns go last" convention already
+     * used in application/views/admin/tables/my_follow_ups.php.
+     */
+    public function my_projects_table()
+    {
+        if (!$this->input->is_ajax_request()) {
+            return;
+        }
+
+        $staff_id = get_staff_user_id();
+        $is_admin = is_admin();
+
+        $aColumns = [
+            db_prefix() . 'projects.name',
+            db_prefix() . 'clients.company',
+            db_prefix() . 'service_types.name as service_type_name',
+            db_prefix() . 'projects.project_created',
+            db_prefix() . 'projects.deadline',
+            db_prefix() . 'projects.status',
+            db_prefix() . 'projects.progress',
+        ];
+
+        $sIndexColumn = 'id';
+        $sTable       = db_prefix() . 'projects';
+
+        $join = [
+            'LEFT JOIN ' . db_prefix() . 'clients ON ' . db_prefix() . 'clients.userid = ' . db_prefix() . 'projects.clientid',
+            'LEFT JOIN ' . db_prefix() . 'service_types ON ' . db_prefix() . 'service_types.id = ' . db_prefix() . 'projects.service_type_id',
+        ];
+
+        $where = [
+            'AND ' . $this->dev_portal_model->get_my_projects_where($staff_id, $is_admin),
+        ];
+
+        $result = data_tables_init($aColumns, $sIndexColumn, $sTable, $join, $where, [
+            db_prefix() . 'projects.id',
+            // Priority - the highest priority among this project's own
+            // tasks (tbltasks.rel_type='project'), since tblprojects has
+            // no priority column of its own - reuses the exact
+            // priority scale/colors Tasks already defines
+            // (get_tasks_priorities()/task_priority()/task_priority_color()
+            // in application/helpers/tasks_helper.php), not a new one.
+            '(SELECT MAX(t.priority) FROM ' . db_prefix() . "tasks t WHERE t.rel_type = 'project' AND t.rel_id = " . db_prefix() . 'projects.id) as derived_priority',
+        ]);
+
+        $output  = $result['output'];
+        $rResult = $result['rResult'];
+
+        foreach ($rResult as $aRow) {
+            $row = [];
+
+            // Links to this portal's own Project Workspace
+            // (dev_portal/project/<id>), not the native admin project
+            // page - the Workspace is a secure, member-scoped interface
+            // onto the same tblprojects row, not a second project page.
+            $row[] = '<a href="' . admin_url('dev_portal/project/' . $aRow['id']) . '" class="tw-font-medium">' . e($aRow[db_prefix() . 'projects.name']) . '</a>';
+            $row[] = $aRow[db_prefix() . 'clients.company'] ? e($aRow[db_prefix() . 'clients.company']) : '-';
+            $row[] = $aRow['service_type_name'] ? e($aRow['service_type_name']) : '-';
+            $row[] = $aRow[db_prefix() . 'projects.project_created'] ? e(_d($aRow[db_prefix() . 'projects.project_created'])) : '-';
+            $row[] = $aRow[db_prefix() . 'projects.deadline'] ? e(_d($aRow[db_prefix() . 'projects.deadline'])) : '-';
+
+            // get_project_status_by_id() is a global helper
+            // (application/helpers/projects_helper.php), not a
+            // Projects_model method - calling it as $this->projects_model->...
+            // was a fatal "call to undefined method" that broke this
+            // endpoint's JSON response entirely (DataTables then hangs on
+            // "Processing" forever, since it never gets valid JSON back).
+            $status = get_project_status_by_id($aRow[db_prefix() . 'projects.status']);
+            $row[]  = '<span class="label" style="color:' . $status['color'] . ';border:1px solid ' . adjust_hex_brightness($status['color'], 0.4) . ';background:' . adjust_hex_brightness($status['color'], 0.04) . ';">' . e($status['name']) . '</span>';
+
+            $progress = (int) $aRow[db_prefix() . 'projects.progress'];
+            $row[]    = '<div class="progress" style="margin-bottom:0;"><div class="progress-bar" role="progressbar" style="width:' . $progress . '%;" aria-valuenow="' . $progress . '" aria-valuemin="0" aria-valuemax="100">' . $progress . '%</div></div>';
+
+            if (!empty($aRow['derived_priority'])) {
+                $row[] = '<span class="label" style="color:' . task_priority_color($aRow['derived_priority']) . ';">' . e(task_priority($aRow['derived_priority'])) . '</span>';
+            } else {
+                $row[] = '-';
+            }
+
+            // Open - explicit action button into the Workspace, in
+            // addition to the Project Name link above (same URL either
+            // way) - derived, appended last, same convention as Priority
+            // above.
+            $row[] = '<a href="' . admin_url('dev_portal/project/' . $aRow['id']) . '" class="btn btn-default btn-sm">' . _l('dev_portal_open') . '</a>';
+
+            $row['DT_RowId'] = 'dev_portal_project_' . $aRow['id'];
+            $output['aaData'][] = $row;
+        }
+
+        echo json_encode($output);
+    }
+
+    public function my_tasks()
+    {
+        $data['title'] = _l('dev_portal_my_tasks');
+        $this->load->view('my_tasks', $data);
+    }
+
+    /**
+     * My Tasks DataTable source - same self-contained convention as
+     * my_projects_table() above. $aColumns' 6 real columns (Task/
+     * Priority/Status/Due Date/Estimated Hours match render order;
+     * Project is rendered second (per the required column order) but has
+     * no 1:1 column on tbltasks itself - a real LEFT JOIN to tblprojects
+     * (rel_id/rel_type='project') puts it in $aColumns at the correct
+     * visual index instead of resolving it via additionalSelect, exactly
+     * the "real sortable proxy column at the correct position" pattern
+     * application/views/admin/tables/my_follow_ups.php already
+     * established (staff.firstname there) - the alternative (a
+     * correlated subquery in additionalSelect, appended after the loop)
+     * would silently break sort/search on every column after it, since
+     * Project isn't the last rendered column here. Hours Worked has no
+     * such option (it's a SUM aggregate, not a single joinable column)
+     * so it stays a derived, appended-last column.
+     */
+    public function my_tasks_table()
+    {
+        if (!$this->input->is_ajax_request()) {
+            return;
+        }
+
+        $staff_id = get_staff_user_id();
+        $is_admin = is_admin();
+
+        $aColumns = [
+            db_prefix() . 'tasks.name',
+            db_prefix() . 'projects.name as project_name',
+            db_prefix() . 'tasks.priority',
+            db_prefix() . 'tasks.status',
+            db_prefix() . 'tasks.duedate',
+            db_prefix() . 'tasks.estimated_hours',
+        ];
+
+        $sIndexColumn = 'id';
+        $sTable       = db_prefix() . 'tasks';
+
+        // rel_type isn't always 'project' (a task can relate to other
+        // entities) - the join condition itself, not just the WHERE
+        // clause, guards that so non-project tasks simply get a NULL
+        // project_name rather than being excluded.
+        $join = [
+            'LEFT JOIN ' . db_prefix() . 'projects ON ' . db_prefix() . 'projects.id = ' . db_prefix() . "tasks.rel_id AND " . db_prefix() . "tasks.rel_type = 'project'",
+        ];
+
+        $where = [
+            'AND ' . $this->dev_portal_model->get_my_tasks_where($staff_id, $is_admin),
+        ];
+
+        $result = data_tables_init($aColumns, $sIndexColumn, $sTable, $join, $where, [
+            db_prefix() . 'tasks.id',
+            // Hours Worked - same SUM(CASE end_time IS NULL ...) expression
+            // application/helpers/tasks_helper.php's own
+            // get_sql_calc_task_logged_time() already uses for a single
+            // task, restructured as a correlated subquery (that helper
+            // takes one fixed $task_id and can't run per-row in a
+            // listing) - same business logic, not reinvented.
+            '(SELECT SUM(CASE WHEN end_time IS NULL THEN ' . time() . '-start_time ELSE end_time-start_time END) FROM ' . db_prefix() . 'taskstimers WHERE task_id = ' . db_prefix() . 'tasks.id) as logged_seconds',
+        ]);
+
+        $output  = $result['output'];
+        $rResult = $result['rResult'];
+
+        foreach ($rResult as $aRow) {
+            $row = [];
+
+            $row[] = '<a href="#" onclick="init_task_modal(' . (int) $aRow['id'] . '); return false;" class="tw-font-medium">' . e($aRow[db_prefix() . 'tasks.name']) . '</a>';
+            $row[] = $aRow['project_name'] ? e($aRow['project_name']) : '-';
+            $row[] = '<span class="label" style="color:' . task_priority_color($aRow[db_prefix() . 'tasks.priority']) . ';">' . e(task_priority($aRow[db_prefix() . 'tasks.priority'])) . '</span>';
+            $row[] = format_task_status($aRow[db_prefix() . 'tasks.status']);
+            $row[] = $aRow[db_prefix() . 'tasks.duedate'] ? e(_d($aRow[db_prefix() . 'tasks.duedate'])) : '-';
+            $row[] = $aRow[db_prefix() . 'tasks.estimated_hours'] !== null ? e($aRow[db_prefix() . 'tasks.estimated_hours']) . 'h' : '-';
+
+            // seconds_to_time_format() (application/helpers/func_helper.php) -
+            // the exact same helper Perfex's own task timesheet views use
+            // to render tbltaskstimers totals, not a new formatter.
+            $logged_seconds = (int) $aRow['logged_seconds'];
+            $row[] = $logged_seconds > 0 ? e(seconds_to_time_format($logged_seconds)) : '-';
+
+            $row['DT_RowId'] = 'dev_portal_task_' . $aRow['id'];
+            $output['aaData'][] = $row;
+        }
+
+        echo json_encode($output);
+    }
+
+    /**
+     * Project Workspace - a secure, member-scoped interface onto the
+     * SAME project the native admin Projects module already stores and
+     * manages (tblprojects/tblproject_members/tblprojectdiscussions/
+     * tblproject_files - no second project system, no duplicated data).
+     * authorize_project_access() is the only thing standing between a
+     * direct URL guess and someone else's project - it is checked first,
+     * before anything else in this action.
+     */
+    public function project($id)
+    {
+        $this->authorize_project_access($id);
+
+        $project = $this->projects_model->get($id);
+
+        if (!$project) {
+            blank_page(_l('project_not_found'));
+        }
+
+        $data['title']           = $project->name;
+        $data['project']         = $project;
+        $data['status_options']  = dev_portal_project_status_options();
+        $data['status_label']    = dev_portal_project_status_label($project->status);
+        $data['is_cancelled']    = (int) $project->status === 5;
+        $data['department_name'] = get_business_department_name($project->department);
+        $data['work_logs']       = $this->dev_worklog_model->get_for_project($id);
+        $data['files']           = $this->projects_model->get_files($id);
+
+        $discussion_id       = $this->get_or_create_workspace_discussion($id);
+        $data['discussion_id'] = $discussion_id;
+        $data['comments']       = $discussion_id ? $this->projects_model->get_discussion_comments($discussion_id, 'regular') : [];
+
+        $this->load->view('project_workspace', $data);
+    }
+
+    /**
+     * Update Progress - reuses Projects_model::update_assignment_field()
+     * (widened to accept 'progress', see that method's own docblock for
+     * why the heavier Projects_model::update() is deliberately NOT used
+     * here) rather than a new setter.
+     */
+    public function project_update_progress($id)
+    {
+        $this->authorize_project_access($id, true);
+
+        $progress = $this->input->post('progress');
+
+        if ($progress === null || !is_numeric($progress)) {
+            echo json_encode(['success' => false, 'message' => _l('dev_portal_invalid_progress')]);
+
+            return;
+        }
+
+        $this->projects_model->update_assignment_field($id, 'progress', $progress);
+
+        echo json_encode(['success' => true]);
+    }
+
+    /**
+     * Change Status - reuses Projects_model::mark_as() directly (the
+     * exact method the native admin "Change Status" action calls),
+     * restricted to the 4 ids dev_portal_project_status_options()
+     * exposes. Cancelled (5) can never be reached through this action
+     * regardless of what a manipulated request posts - the posted value
+     * is validated against the allowed-id whitelist, not just hidden in
+     * the UI.
+     */
+    public function project_update_status($id)
+    {
+        $this->authorize_project_access($id, true);
+
+        $status_id = (int) $this->input->post('status_id');
+
+        if (!array_key_exists($status_id, dev_portal_project_status_options())) {
+            echo json_encode(['success' => false, 'message' => _l('dev_portal_invalid_status')]);
+
+            return;
+        }
+
+        $this->projects_model->mark_as([
+            'project_id' => $id,
+            'status_id'  => $status_id,
+        ]);
+
+        echo json_encode(['success' => true]);
+    }
+
+    /**
+     * Daily Work Update - the one genuinely new piece of data this
+     * feature introduces (Dev_worklog_model, tbldev_portal_work_logs).
+     * Every entry is tied to project_id + the CURRENT staff id (never a
+     * posted staff id), so a member can only ever log work against
+     * themselves.
+     */
+    public function project_add_worklog($id)
+    {
+        $this->authorize_project_access($id, true);
+
+        $work_date      = $this->input->post('work_date');
+        $work_performed = trim((string) $this->input->post('work_performed'));
+
+        if (!$work_date || $work_performed === '') {
+            echo json_encode(['success' => false, 'message' => _l('dev_portal_worklog_missing_fields')]);
+
+            return;
+        }
+
+        $this->dev_worklog_model->add([
+            'project_id'     => $id,
+            'staff_id'       => get_staff_user_id(),
+            'work_date'      => to_sql_date($work_date),
+            'work_performed' => $work_performed,
+            'hours_worked'   => $this->input->post('hours_worked'),
+            'remarks'        => $this->input->post('remarks'),
+        ]);
+
+        echo json_encode(['success' => true]);
+    }
+
+    /**
+     * File upload - reuses the exact native helper
+     * handle_project_file_uploads() (application/helpers/upload_helper.php),
+     * the same one Projects::upload_file() calls, so files land in
+     * tblproject_files identically to an admin-uploaded file. The native
+     * controller action has no permission gate at all; this one adds the
+     * membership check that was missing.
+     */
+    public function project_upload_file($id)
+    {
+        $this->authorize_project_access($id, true);
+
+        handle_project_file_uploads($id);
+
+        echo json_encode(['success' => true]);
+    }
+
+    /**
+     * Comments - posts into the shared Workspace discussion thread via
+     * the native Projects_model::add_discussion_comment(), so Admin/
+     * Manager see it (and can reply) through the ordinary Projects ->
+     * Discussions tab - no separate comment system.
+     */
+    public function project_add_comment($id)
+    {
+        $this->authorize_project_access($id, true);
+
+        $content = trim((string) $this->input->post('content'));
+
+        if ($content === '') {
+            echo json_encode(['success' => false, 'message' => _l('dev_portal_comment_missing_content')]);
+
+            return;
+        }
+
+        $discussion_id = $this->get_or_create_workspace_discussion($id);
+        $this->projects_model->add_discussion_comment(['content' => $content], $discussion_id, 'regular');
+
+        echo json_encode(['success' => true]);
+    }
+}
