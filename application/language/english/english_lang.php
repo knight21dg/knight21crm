@@ -4152,3 +4152,10 @@ $lang['not_late_arrival_request_rejected'] = 'rejected your Late Arrival Request
 $lang['not_early_exit_request_submitted'] = 'submitted a new Early Exit Request for %s';
 $lang['not_early_exit_request_approved'] = 'approved your Early Exit Request for %s';
 $lang['not_early_exit_request_rejected'] = 'rejected your Early Exit Request for %s';
+
+# Smart Attendance v2 Part 2 - Admin <-> Operations Manager cross-
+# notification (core, not module-scoped, same reasoning as above). One
+# shared key covers both directions and all 3 request types, since the
+# acting staff member's name is already prepended by the notification
+# renderer itself - only the decision/type/requester/date vary.
+$lang['not_attendance_request_decision_cross_notify'] = '%s a %s Request submitted by %s (%s)';

@@ -13,6 +13,7 @@ class Manager_portal extends AdminController
         }
 
         $this->load->model('manager_portal/manager_portal_model');
+        $this->load->model('staff_model');
 
         // The trailing 'manager_portal' module hint is required, not
         // decorative: App_Lang::load()'s auto-detected module (via
@@ -367,6 +368,27 @@ class Manager_portal extends AdminController
 
             if ($notified) {
                 pusher_trigger_notification([$updated->staff_id]);
+            }
+
+            // Admin <-> Operations Manager cross-notification (Smart
+            // Attendance v2 Part 2): "If Operations Manager approves,
+            // Admin receives notification." Every active admin, not just
+            // one - see attendance_get_admin_staff_ids()'s own docblock.
+            $type_label   = ['leave' => 'Leave', 'late_arrival' => 'Late Arrival', 'early_exit' => 'Early Exit'][$type];
+            $requester    = $this->staff_model->get($updated->staff_id);
+            $admin_ids    = attendance_get_admin_staff_ids();
+
+            foreach ($admin_ids as $admin_id) {
+                $admin_notified = add_notification([
+                    'description'     => 'not_attendance_request_decision_cross_notify',
+                    'touserid'        => $admin_id,
+                    'link'            => 'staff_attendance',
+                    'additional_data' => serialize([$decision, $type_label, $requester ? ($requester->firstname . ' ' . $requester->lastname) : '', _d($updated->attendance_date ?? $updated->start_date)]),
+                ]);
+
+                if ($admin_notified) {
+                    pusher_trigger_notification([$admin_id]);
+                }
             }
         }
 

@@ -254,3 +254,23 @@ function staff_attendance_dashboard_widgets($staff_id)
     staff_dashboard_kpi_card(_l('staff_attendance_widget_upcoming_holidays'), $upcoming_holidays, 'fa-solid fa-umbrella-beach', 'deadlines', '', null, $attendance_url . '#tab_holiday_calendar');
     staff_dashboard_kpi_grid_close();
 }
+
+/**
+ * Every active Super Admin staff id - used by the Admin <-> Operations
+ * Manager cross-notification (Smart Attendance v2 Part 2): whichever
+ * side did NOT make a leave/late/early decision gets notified of it.
+ * There is no fixed "the" admin the way get_operations_manager_staff_id()
+ * has a single Operations Manager - this notifies every admin account.
+ *
+ * @return array of staff ids
+ */
+function attendance_get_admin_staff_ids()
+{
+    $CI = &get_instance();
+    $CI->db->select('staffid');
+    $CI->db->where('admin', 1);
+    $CI->db->where('active', 1);
+    $rows = $CI->db->get(db_prefix() . 'staff')->result_array();
+
+    return array_column($rows, 'staffid');
+}

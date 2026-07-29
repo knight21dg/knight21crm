@@ -49,6 +49,19 @@ class Staff_attendance extends AdminController
             // get_holidays() read every employee's own read-only Holiday
             // Calendar tab already uses.
             $data['holidays'] = $this->staff_attendance_model->get_holidays();
+
+            // Smart Attendance v2 Part 2 - Admin becomes Super Controller:
+            // the same 3 review queues Manager Portal already has, plus
+            // the counts for the review-tab badges. Default filter is
+            // 'Pending' so Admin lands on exactly what needs action,
+            // matching Manager Portal's own default.
+            $data['leave_review']      = $this->staff_attendance_model->get_leave_requests_for_review(['status' => 'Pending']);
+            $data['late_review']       = $this->staff_attendance_model->get_late_arrival_requests_for_review(['status' => 'Pending']);
+            $data['early_review']      = $this->staff_attendance_model->get_early_exit_requests_for_review(['status' => 'Pending']);
+            $data['pending_leave']     = $this->staff_attendance_model->get_pending_leave_requests_count();
+            $data['pending_late']      = $this->staff_attendance_model->get_pending_late_arrival_requests_count();
+            $data['pending_early']     = $this->staff_attendance_model->get_pending_early_exit_requests_count();
+            $data['recent_audit_log']  = $this->staff_attendance_model->get_audit_log(['limit' => 100]);
         } else {
             $staff_id = get_staff_user_id();
 
@@ -586,6 +599,7 @@ class Staff_attendance extends AdminController
                 db_prefix() . 'staff_attendance.login_time',
                 db_prefix() . 'staff_attendance.logout_time',
                 db_prefix() . 'staff_attendance.working_minutes',
+                db_prefix() . 'staff_attendance.total_sessions',
                 db_prefix() . 'staff_attendance.attendance_status',
                 db_prefix() . 'staff_attendance.remarks',
             ];
@@ -595,6 +609,7 @@ class Staff_attendance extends AdminController
                 db_prefix() . 'staff_attendance.login_time',
                 db_prefix() . 'staff_attendance.logout_time',
                 db_prefix() . 'staff_attendance.working_minutes',
+                db_prefix() . 'staff_attendance.total_sessions',
                 db_prefix() . 'staff_attendance.attendance_status',
                 db_prefix() . 'staff_attendance.remarks',
             ];
@@ -662,6 +677,11 @@ class Staff_attendance extends AdminController
             $row[] = $aRow[db_prefix() . 'staff_attendance.login_time'] ? _dt($aRow[db_prefix() . 'staff_attendance.login_time']) : '-';
             $row[] = $aRow[db_prefix() . 'staff_attendance.logout_time'] ? _dt($aRow[db_prefix() . 'staff_attendance.logout_time']) : '-';
             $row[] = format_working_minutes($aRow[db_prefix() . 'staff_attendance.working_minutes']);
+
+            $sessions = (int) $aRow[db_prefix() . 'staff_attendance.total_sessions'];
+            $row[]    = $sessions > 0
+                ? '<a href="#" onclick="attendance_view_sessions(' . (int) $aRow['id'] . '); return false;">' . $sessions . ' <i class="fa-regular fa-clock tw-text-xs"></i></a>'
+                : '-';
 
             $status = $aRow[db_prefix() . 'staff_attendance.attendance_status'];
 
@@ -751,6 +771,7 @@ class Staff_attendance extends AdminController
             db_prefix() . 'staff_attendance.login_time',
             db_prefix() . 'staff_attendance.logout_time',
             db_prefix() . 'staff_attendance.working_minutes',
+            db_prefix() . 'staff_attendance.total_sessions',
             db_prefix() . 'staff_attendance.attendance_status',
             db_prefix() . 'staff_attendance.remarks',
         ];
@@ -807,6 +828,11 @@ class Staff_attendance extends AdminController
             $row[] = ($has_record && $aRow[db_prefix() . 'staff_attendance.login_time']) ? _dt($aRow[db_prefix() . 'staff_attendance.login_time']) : '-';
             $row[] = ($has_record && $aRow[db_prefix() . 'staff_attendance.logout_time']) ? _dt($aRow[db_prefix() . 'staff_attendance.logout_time']) : '-';
             $row[] = $has_record ? format_working_minutes($aRow[db_prefix() . 'staff_attendance.working_minutes']) : '0h 0m';
+
+            $sessions = $has_record ? (int) $aRow[db_prefix() . 'staff_attendance.total_sessions'] : 0;
+            $row[]    = $sessions > 0
+                ? '<a href="#" onclick="attendance_view_sessions(' . (int) $aRow['attendance_id'] . '); return false;">' . $sessions . ' <i class="fa-regular fa-clock tw-text-xs"></i></a>'
+                : '-';
 
             $status = $has_record ? $aRow[db_prefix() . 'staff_attendance.attendance_status'] : 'Absent';
 
@@ -886,6 +912,38 @@ class Staff_attendance extends AdminController
     }
 
     /**
+     * Smart Attendance session breakdown - AJAX modal partial for one
+     * day's attendance row (Session 1, Session 2, ...). Ownership-gated
+     * the same way attendance_detail-style views are elsewhere in this
+     * codebase: Admin can view anyone's, a staff member only their own.
+     *
+     * @param mixed $id tblstaff_attendance.id
+     */
+    public function sessions_modal($id)
+    {
+        if (!is_staff_member()) {
+            ajax_access_denied();
+        }
+
+        $record = $this->staff_attendance_model->get($id);
+
+        if (!$record) {
+            echo _l('staff_attendance_no_sessions');
+
+            return;
+        }
+
+        if (!is_admin() && (int) $record->staff_id !== (int) get_staff_user_id()) {
+            ajax_access_denied();
+        }
+
+        $data['record']   = $record;
+        $data['sessions'] = $this->staff_attendance_model->get_sessions_for_date($record->staff_id, $record->attendance_date);
+
+        $this->load->view('sessions_modal', $data);
+    }
+
+    /**
      * Admin-only manual add - the only path that can create an
      * attendance row without a real login event (e.g. backfilling a
      * known Absent/Leave/Weekend day).
@@ -927,5 +985,184 @@ class Staff_attendance extends AdminController
         }
 
         echo json_encode(['success' => true]);
+    }
+
+    /**
+     * Admin Portal Attendance Module (Part 2) - "Admin becomes Super
+     * Controller". Mirrors Manager_portal::review_request() but calls the
+     * admin_review_*_request() model methods instead, which have no
+     * "Pending only" guard - so this both handles a still-Pending request
+     * (normal review) and re-decides one the Operations Manager (or a
+     * previous Admin action) already Approved/Rejected ("Override
+     * Operations Manager decision", explicit requirement). Every call is
+     * audit-logged inside the model layer itself, and the Operations
+     * Manager is notified either way, same cross-notification shape
+     * Manager_portal::review_request() already sends to every Admin.
+     */
+    public function review_request()
+    {
+        if (!is_admin()) {
+            ajax_access_denied();
+        }
+
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+        }
+
+        $type     = $this->input->post('type');
+        $id       = (int) $this->input->post('id');
+        $decision = $this->input->post('decision');
+        $remarks  = trim((string) $this->input->post('remarks'));
+
+        if (!in_array($decision, ['Approved', 'Rejected'], true)) {
+            echo json_encode(['success' => false, 'message' => _l('staff_attendance_invalid_decision')]);
+
+            return;
+        }
+
+        $map = [
+            'leave'        => ['admin_review_leave_request', 'Leave'],
+            'late_arrival' => ['admin_review_late_arrival_request', 'Late Arrival'],
+            'early_exit'   => ['admin_review_early_exit_request', 'Early Exit'],
+        ];
+
+        if (!isset($map[$type])) {
+            show_404();
+        }
+
+        [$method, $type_label] = $map[$type];
+
+        $updated = $this->staff_attendance_model->$method($id, $decision, get_staff_user_id(), $remarks);
+
+        if ($updated) {
+            $description_key = $decision === 'Approved'
+                ? ['leave' => 'not_leave_request_approved', 'late_arrival' => 'not_late_arrival_request_approved', 'early_exit' => 'not_early_exit_request_approved'][$type]
+                : ['leave' => 'not_leave_request_rejected', 'late_arrival' => 'not_late_arrival_request_rejected', 'early_exit' => 'not_early_exit_request_rejected'][$type];
+
+            $notified = add_notification([
+                'description'     => $description_key,
+                'touserid'        => $updated->staff_id,
+                'link'            => 'staff_attendance',
+                'additional_data' => serialize([_d($updated->attendance_date ?? $updated->start_date)]),
+            ]);
+
+            if ($notified) {
+                pusher_trigger_notification([$updated->staff_id]);
+            }
+
+            // "If Admin approves, Operations Manager receives notification."
+            $manager_id = get_operations_manager_staff_id();
+
+            if ($manager_id) {
+                $requester = $this->staff_model->get($updated->staff_id);
+                $manager_notified = add_notification([
+                    'description'     => 'not_attendance_request_decision_cross_notify',
+                    'touserid'        => $manager_id,
+                    'link'            => 'staff_attendance',
+                    'additional_data' => serialize([$decision, $type_label, $requester ? ($requester->firstname . ' ' . $requester->lastname) : '', _d($updated->attendance_date ?? $updated->start_date)]),
+                ]);
+
+                if ($manager_notified) {
+                    pusher_trigger_notification([$manager_id]);
+                }
+            }
+        }
+
+        echo json_encode([
+            'success' => (bool) $updated,
+            'message' => $updated ? _l('staff_attendance_review_saved') : _l('staff_attendance_review_failed'),
+        ]);
+    }
+
+    /**
+     * AJAX - re-filters one of the 3 Admin review queues (Leave/Late
+     * Arrival/Early Exit) by status/employee/department/date without a
+     * full page reload, returning the same table body markup the initial
+     * page render used so the JS can just swap it in.
+     */
+    public function review_requests_filter()
+    {
+        if (!is_admin()) {
+            ajax_access_denied();
+        }
+
+        $type    = $this->input->post('type');
+        $filters = [
+            'status'      => $this->input->post('status') ?: null,
+            'employee_id' => $this->input->post('employee_id') ?: null,
+            'date_from'   => $this->input->post('date_from') ? to_sql_date($this->input->post('date_from')) : null,
+            'date_to'     => $this->input->post('date_to') ? to_sql_date($this->input->post('date_to')) : null,
+        ];
+
+        if ($this->input->post('department_id')) {
+            $this->load->model('business_departments/business_departments_model');
+            $filters['staff_ids'] = $this->business_departments_model->get_department_staff_ids((int) $this->input->post('department_id'));
+        }
+
+        $methods = [
+            'leave'        => 'get_leave_requests_for_review',
+            'late_arrival' => 'get_late_arrival_requests_for_review',
+            'early_exit'   => 'get_early_exit_requests_for_review',
+        ];
+
+        if (!isset($methods[$type])) {
+            show_404();
+        }
+
+        $data['type']    = $type;
+        $data['records'] = $this->staff_attendance_model->{$methods[$type]}($filters);
+
+        $this->load->view('review_requests_rows', $data);
+    }
+
+    /**
+     * Admin Portal Reports - Daily/Weekly/Monthly, Employee-wise,
+     * Department-wise, Attendance Summary, Late Report, Leave Report,
+     * Working Hours Report. One page, a report-type selector, all built
+     * on the model methods added for this Part - no per-report-type
+     * page, matching this module's existing "one page, tabs" convention
+     * (Attendance/Holidays already work this way).
+     */
+    public function reports()
+    {
+        if (!is_admin()) {
+            access_denied('Attendance Reports');
+        }
+
+        $year  = (int) ($this->input->get('year') ?: date('Y'));
+        $month = (int) ($this->input->get('month') ?: date('n'));
+
+        $data['title']              = _l('staff_attendance_reports');
+        $data['year']               = $year;
+        $data['month']              = $month;
+        $data['employee_report']    = $this->staff_attendance_model->get_employee_wise_month_report($year, $month);
+        $data['department_report']  = $this->staff_attendance_model->get_department_wise_month_report($year, $month);
+        $data['late_report']        = $this->staff_attendance_model->get_late_report($year, $month);
+        $data['leave_report']       = $this->staff_attendance_model->get_leave_report($year, $month);
+
+        $this->load->view('reports', $data);
+    }
+
+    /**
+     * Admin-facing Audit Log - "View Complete History". Filterable by
+     * target type / employee / date range, all via
+     * Staff_attendance_model::get_audit_log().
+     */
+    public function audit_log()
+    {
+        if (!is_admin()) {
+            ajax_access_denied();
+        }
+
+        $filters = [
+            'target_type'     => $this->input->post('target_type') ?: null,
+            'target_staff_id' => $this->input->post('employee_id') ?: null,
+            'date_from'       => $this->input->post('date_from') ? to_sql_date($this->input->post('date_from')) : null,
+            'date_to'         => $this->input->post('date_to') ? to_sql_date($this->input->post('date_to')) : null,
+        ];
+
+        $data['log'] = $this->staff_attendance_model->get_audit_log($filters);
+
+        $this->load->view('audit_log_rows', $data);
     }
 }

@@ -19,6 +19,7 @@
                                 (.open-customizer, assets/js/main.js) rather than a new
                                 settings page/controller - admin-only, matching the
                                 existing "Setup" gear's own visibility. -->
+                                <a href="<?= admin_url('staff_attendance/reports'); ?>" class="btn btn-default btn-sm"><i class="fa-solid fa-chart-column"></i> <?= _l('staff_attendance_reports'); ?></a>
                                 <a href="#" class="btn btn-default btn-sm open-customizer" title="<?= _l('staff_attendance_settings'); ?>"><i class="fa-solid fa-gear"></i></a>
                                 <button type="button" class="btn btn-primary btn-sm" onclick="attendance_open_add_modal();"><i class="fa-solid fa-plus"></i> <?= _l('staff_attendance_add'); ?></button>
                             </div>
@@ -27,7 +28,11 @@
 
                         <ul class="nav nav-tabs nav-tabs-horizontal" role="tablist">
                             <li class="active"><a href="#tab_admin_attendance_records" data-toggle="tab"><?= _l('staff_attendance_tab_history'); ?></a></li>
+                            <li><a href="#tab_admin_leave_review" data-toggle="tab"><?= _l('staff_attendance_tab_leave_review'); ?> <?php if ($pending_leave) { ?><span class="badge"><?= (int) $pending_leave; ?></span><?php } ?></a></li>
+                            <li><a href="#tab_admin_late_review" data-toggle="tab"><?= _l('staff_attendance_tab_late_review'); ?> <?php if ($pending_late) { ?><span class="badge"><?= (int) $pending_late; ?></span><?php } ?></a></li>
+                            <li><a href="#tab_admin_early_review" data-toggle="tab"><?= _l('staff_attendance_tab_early_review'); ?> <?php if ($pending_early) { ?><span class="badge"><?= (int) $pending_early; ?></span><?php } ?></a></li>
                             <li><a href="#tab_admin_holidays" data-toggle="tab"><?= _l('staff_attendance_tab_holidays'); ?></a></li>
+                            <li><a href="#tab_admin_audit_log" data-toggle="tab"><?= _l('staff_attendance_tab_audit_log'); ?></a></li>
                         </ul>
                         <div class="tab-content tw-pt-4">
                         <div class="tab-pane active" id="tab_admin_attendance_records">
@@ -85,10 +90,82 @@
                             _l('staff_attendance_column_login'),
                             _l('staff_attendance_column_logout'),
                             _l('staff_attendance_column_working_hours'),
+                            _l('staff_attendance_column_sessions'),
                             _l('staff_attendance_column_status'),
                             _l('staff_attendance_column_remarks'),
                         ], 'staff-attendance'); ?>
 
+                        </div>
+
+                        <div class="tab-pane" id="tab_admin_leave_review">
+                            <div class="row tw-mb-4">
+                                <div class="col-md-3 no-padding">
+                                    <select id="admin-review-filter-status-leave" class="form-control" onchange="attendance_filter_review('leave');">
+                                        <?php foreach (['Pending', 'Approved', 'Rejected', ''] as $status_option) { ?>
+                                        <option value="<?= e($status_option); ?>" <?= $status_option === 'Pending' ? 'selected' : ''; ?>><?= $status_option !== '' ? e($status_option) : _l('staff_attendance_filter_all_statuses'); ?></option>
+                                        <?php } ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-3 no-padding">
+                                    <select id="admin-review-filter-department-leave" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="<?= _l('staff_attendance_filter_all_departments'); ?>" onchange="attendance_filter_review('leave');">
+                                        <option value=""><?= _l('staff_attendance_filter_all_departments'); ?></option>
+                                        <?php foreach ($departments as $department) { ?>
+                                        <option value="<?= (int) $department['id']; ?>"><?= e($department['name']); ?></option>
+                                        <?php } ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-3 no-padding">
+                                    <select id="admin-review-filter-employee-leave" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="<?= _l('staff_attendance_filter_all_employees'); ?>" onchange="attendance_filter_review('leave');">
+                                        <option value=""><?= _l('staff_attendance_filter_all_employees'); ?></option>
+                                        <?php foreach ($staff as $member) { ?>
+                                        <option value="<?= (int) $member['staffid']; ?>"><?= e(trim($member['firstname'] . ' ' . $member['lastname'])); ?></option>
+                                        <?php } ?>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="admin-review-rows-leave"><?= $this->load->view('review_requests_rows', ['type' => 'leave', 'records' => $leave_review], true); ?></div>
+                        </div>
+
+                        <div class="tab-pane" id="tab_admin_late_review">
+                            <div class="row tw-mb-4">
+                                <div class="col-md-3 no-padding">
+                                    <select id="admin-review-filter-status-late_arrival" class="form-control" onchange="attendance_filter_review('late_arrival');">
+                                        <?php foreach (['Pending', 'Approved', 'Rejected', ''] as $status_option) { ?>
+                                        <option value="<?= e($status_option); ?>" <?= $status_option === 'Pending' ? 'selected' : ''; ?>><?= $status_option !== '' ? e($status_option) : _l('staff_attendance_filter_all_statuses'); ?></option>
+                                        <?php } ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-3 no-padding">
+                                    <select id="admin-review-filter-employee-late_arrival" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="<?= _l('staff_attendance_filter_all_employees'); ?>" onchange="attendance_filter_review('late_arrival');">
+                                        <option value=""><?= _l('staff_attendance_filter_all_employees'); ?></option>
+                                        <?php foreach ($staff as $member) { ?>
+                                        <option value="<?= (int) $member['staffid']; ?>"><?= e(trim($member['firstname'] . ' ' . $member['lastname'])); ?></option>
+                                        <?php } ?>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="admin-review-rows-late_arrival"><?= $this->load->view('review_requests_rows', ['type' => 'late_arrival', 'records' => $late_review], true); ?></div>
+                        </div>
+
+                        <div class="tab-pane" id="tab_admin_early_review">
+                            <div class="row tw-mb-4">
+                                <div class="col-md-3 no-padding">
+                                    <select id="admin-review-filter-status-early_exit" class="form-control" onchange="attendance_filter_review('early_exit');">
+                                        <?php foreach (['Pending', 'Approved', 'Rejected', ''] as $status_option) { ?>
+                                        <option value="<?= e($status_option); ?>" <?= $status_option === 'Pending' ? 'selected' : ''; ?>><?= $status_option !== '' ? e($status_option) : _l('staff_attendance_filter_all_statuses'); ?></option>
+                                        <?php } ?>
+                                    </select>
+                                </div>
+                                <div class="col-md-3 no-padding">
+                                    <select id="admin-review-filter-employee-early_exit" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="<?= _l('staff_attendance_filter_all_employees'); ?>" onchange="attendance_filter_review('early_exit');">
+                                        <option value=""><?= _l('staff_attendance_filter_all_employees'); ?></option>
+                                        <?php foreach ($staff as $member) { ?>
+                                        <option value="<?= (int) $member['staffid']; ?>"><?= e(trim($member['firstname'] . ' ' . $member['lastname'])); ?></option>
+                                        <?php } ?>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="admin-review-rows-early_exit"><?= $this->load->view('review_requests_rows', ['type' => 'early_exit', 'records' => $early_review], true); ?></div>
                         </div>
 
                         <div class="tab-pane" id="tab_admin_holidays">
@@ -123,6 +200,37 @@
                                     <?php } ?>
                                 </tbody>
                             </table>
+                            <?php } ?>
+                        </div>
+
+                        <div class="tab-pane" id="tab_admin_audit_log">
+                            <?php if (empty($recent_audit_log)) { ?>
+                            <p class="text-muted"><?= _l('staff_attendance_no_audit_log'); ?></p>
+                            <?php } else { ?>
+                            <div class="table-responsive">
+                            <table class="table table-bordered">
+                                <thead>
+                                    <tr>
+                                        <th><?= _l('staff_attendance_audit_column_when'); ?></th>
+                                        <th><?= _l('staff_attendance_audit_column_actor'); ?></th>
+                                        <th><?= _l('staff_attendance_audit_column_action'); ?></th>
+                                        <th><?= _l('staff_attendance_audit_column_old'); ?></th>
+                                        <th><?= _l('staff_attendance_audit_column_new'); ?></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($recent_audit_log as $entry) { ?>
+                                    <tr>
+                                        <td><?= _dt($entry['created_at']); ?></td>
+                                        <td><?= e(trim(($entry['actor_firstname'] ?? '') . ' ' . ($entry['actor_lastname'] ?? ''))); ?></td>
+                                        <td><?= e(str_replace('_', ' ', $entry['action'])); ?></td>
+                                        <td><?= $entry['old_value'] !== null ? e((string) $entry['old_value']) : '-'; ?></td>
+                                        <td><?= $entry['new_value'] !== null ? e((string) $entry['new_value']) : '-'; ?></td>
+                                    </tr>
+                                    <?php } ?>
+                                </tbody>
+                            </table>
+                            </div>
                             <?php } ?>
                         </div>
 
@@ -165,6 +273,7 @@
                                     _l('staff_attendance_column_login'),
                                     _l('staff_attendance_column_logout'),
                                     _l('staff_attendance_column_working_hours'),
+                                    _l('staff_attendance_column_sessions'),
                                     _l('staff_attendance_column_status'),
                                     _l('staff_attendance_column_remarks'),
                                 ], 'staff-attendance'); ?>
@@ -415,6 +524,40 @@
 </div>
 <?php } ?>
 
+<div id="attendance-sessions-modal" class="modal fade" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-body"></div>
+        </div>
+    </div>
+</div>
+
+<?php if (is_admin()) { ?>
+<div id="admin-review-modal" class="modal fade" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                <h4 class="modal-title" id="admin-review-modal-title"></h4>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="admin-review-type" value="" />
+                <input type="hidden" id="admin-review-id" value="" />
+                <input type="hidden" id="admin-review-decision" value="" />
+                <div class="form-group">
+                    <label for="admin-review-remarks"><?= _l('staff_attendance_review_remarks'); ?></label>
+                    <textarea id="admin-review-remarks" class="form-control" rows="3"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal"><?= _l('close'); ?></button>
+                <button type="button" class="btn btn-primary" onclick="attendance_submit_review();"><?= _l('staff_attendance_review_submit'); ?></button>
+            </div>
+        </div>
+    </div>
+</div>
+<?php } ?>
+
 <?php init_tail(); ?>
 <script>
     $(function() {
@@ -522,6 +665,12 @@
         <?php } ?>
     });
 
+    function attendance_view_sessions(id) {
+        $('#attendance-sessions-modal .modal-body').load(admin_url + 'staff_attendance/sessions_modal/' + id, function() {
+            $('#attendance-sessions-modal').modal('show');
+        });
+    }
+
     <?php if (is_admin()) { ?>
     function attendance_load_month_dashboard(staffId, year, month) {
         var params = {};
@@ -569,6 +718,51 @@
         });
 
         return false;
+    }
+
+    function attendance_open_review_modal(type, id, decision) {
+        $('#admin-review-type').val(type);
+        $('#admin-review-id').val(id);
+        $('#admin-review-decision').val(decision);
+        $('#admin-review-remarks').val('');
+        $('#admin-review-modal-title').text(decision === 'Approved' ? '<?= _l('staff_attendance_approve_request'); ?>' : '<?= _l('staff_attendance_reject_request'); ?>');
+        $('#admin-review-modal').modal('show');
+    }
+
+    function attendance_submit_review() {
+        $.post(admin_url + 'staff_attendance/review_request', {
+            type: $('#admin-review-type').val(),
+            id: $('#admin-review-id').val(),
+            decision: $('#admin-review-decision').val(),
+            remarks: $('#admin-review-remarks').val(),
+        }).done(function(response) {
+            var data = typeof response === 'string' ? JSON.parse(response) : response;
+            if (data.success) {
+                $('#admin-review-modal').modal('hide');
+                location.reload();
+            } else {
+                alert_float('danger', data.message);
+            }
+        });
+    }
+
+    // Re-fetches one review queue's rows via AJAX and swaps them in -
+    // status/department(leave only)/employee filters all trigger this,
+    // no full page reload needed just to re-filter (unlike an actual
+    // Approve/Reject, which does reload - see attendance_submit_review()
+    // above - since that also needs to update the pending-count badges).
+    function attendance_filter_review(type) {
+        var params = {
+            type: type,
+            status: $('#admin-review-filter-status-' + type).val(),
+            employee_id: $('#admin-review-filter-employee-' + type).val(),
+        };
+        if (type === 'leave') {
+            params.department_id = $('#admin-review-filter-department-leave').val();
+        }
+        $.post(admin_url + 'staff_attendance/review_requests_filter', params).done(function(response) {
+            $('#admin-review-rows-' + type).html(response);
+        });
     }
 
     function attendance_open_holiday_modal(id) {

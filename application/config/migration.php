@@ -69,7 +69,7 @@ $config['migration_auto_latest'] = false;
 | be upgraded / downgraded to.
 |
 */
-$config['migration_version'] = 379; // Attendance Module Enhancement: leave_requests, holidays, late_arrival_requests, early_exit_requests
+$config['migration_version'] = 381; // Smart Attendance v2 Part 2: attendance_audit_log
 
 /*
 |--------------------------------------------------------------------------

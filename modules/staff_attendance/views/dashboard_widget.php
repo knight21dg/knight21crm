@@ -28,7 +28,11 @@ if (!is_admin()) {
     return;
 }
 
-$summary = $CI->staff_attendance_model->get_today_summary();
+$summary          = $CI->staff_attendance_model->get_today_summary();
+$avg_minutes      = $CI->staff_attendance_model->get_today_avg_working_minutes();
+$pending_leave    = $CI->staff_attendance_model->get_pending_leave_requests_count();
+$pending_late     = $CI->staff_attendance_model->get_pending_late_arrival_requests_count();
+$pending_early    = $CI->staff_attendance_model->get_pending_early_exit_requests_count();
 ?>
 <div class="panel_s">
     <div class="panel-body">
@@ -46,6 +50,25 @@ $summary = $CI->staff_attendance_model->get_today_summary();
                 <div class="tw-text-2xl tw-font-semibold"><?= (int) $summary[$status]; ?></div>
             </div>
             <?php } ?>
+            <div class="col-md-4 col-sm-4 col-xs-6 tw-mb-3">
+                <div class="text-muted"><?= _l('staff_attendance_widget_avg_working_hours'); ?></div>
+                <div class="tw-text-2xl tw-font-semibold"><?= format_working_minutes($avg_minutes); ?></div>
+            </div>
+        </div>
+        <hr class="hr-panel-separator" />
+        <div class="row">
+            <div class="col-md-4 col-sm-4 col-xs-6 tw-mb-3">
+                <a href="<?= admin_url('staff_attendance#tab_admin_leave_review'); ?>" class="text-muted"><?= _l('staff_attendance_widget_pending_leave'); ?></a>
+                <div class="tw-text-2xl tw-font-semibold"><?= (int) $pending_leave; ?></div>
+            </div>
+            <div class="col-md-4 col-sm-4 col-xs-6 tw-mb-3">
+                <a href="<?= admin_url('staff_attendance#tab_admin_late_review'); ?>" class="text-muted"><?= _l('staff_attendance_widget_pending_late'); ?></a>
+                <div class="tw-text-2xl tw-font-semibold"><?= (int) $pending_late; ?></div>
+            </div>
+            <div class="col-md-4 col-sm-4 col-xs-6 tw-mb-3">
+                <a href="<?= admin_url('staff_attendance#tab_admin_early_review'); ?>" class="text-muted"><?= _l('staff_attendance_widget_pending_early'); ?></a>
+                <div class="tw-text-2xl tw-font-semibold"><?= (int) $pending_early; ?></div>
+            </div>
         </div>
         <a href="<?= admin_url('staff_attendance'); ?>" class="tw-text-sm"><?= _l('staff_attendance_view_all'); ?> <i class="fa-solid fa-arrow-right"></i></a>
     </div>
