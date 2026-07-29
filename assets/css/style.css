@@ -5181,6 +5181,17 @@ div[contenteditable]:focus {
   box-shadow: var(--card-hover-shadow);
 }
 
+/* Prevent modal flicker: modals are coded inline inside .panel/.panel_s, so
+   :hover on the panel stays matched while the cursor moves anywhere over an
+   open modal (position: fixed, but still a DOM descendant). That keeps
+   restarting the panel's hover transform/box-shadow transition, which repaints
+   behind the modal-backdrop and reads as flashing. Neutralize the hover lift
+   for any panel while a modal is open, same pattern as .calendar-panel above. */
+body.modal-open .panel:hover,
+body.modal-open .panel_s:hover {
+  transform: none !important;
+}
+
 /* Dashboard home stats */
 .home-stats .panel-body {
   border-radius: var(--card-radius);
