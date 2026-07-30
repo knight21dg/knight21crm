@@ -1520,3 +1520,43 @@ function get_progress_bar_color($progress) {
     return '#22c55e';
 }
 
+/**
+ * Bulk Delete Customers result message - accurately reflects what
+ * actually happened, unlike the previous implementation which counted
+ * every customer as "deleted" as soon as Clients_model::delete() returned
+ * anything truthy, including the ['referenced' => true] array it returns
+ * when a customer is blocked by related invoices/estimates/credit notes
+ * (a non-empty array is truthy in PHP, so that case was silently miscounted
+ * as a success). Mirrors the single-customer delete() action's own
+ * 3-way result handling (admin/Clients.php::delete()), just aggregated
+ * across a batch instead of one row.
+ *
+ * @param  int $deleted
+ * @param  int $failed
+ * @return string
+ */
+function bulk_delete_customers_result_message($deleted, $failed)
+{
+    $deleted_phrase = $deleted . ' ' . ($deleted === 1 ? _l('client_lowercase') : 'customers');
+    $failed_phrase  = $failed . ' ' . ($failed === 1 ? _l('client_lowercase') : 'customers');
+
+    if ($failed === 0) {
+        return sprintf('Successfully deleted %s.', $deleted_phrase);
+    }
+
+    if ($deleted === 0) {
+        return sprintf(
+            'No customers were deleted. %s %s related records such as invoices, estimates, transactions or credit notes.',
+            $failed_phrase,
+            $failed === 1 ? 'has' : 'have'
+        );
+    }
+
+    return sprintf(
+        'Successfully deleted %s. %s could not be deleted because %s related records.',
+        $deleted_phrase,
+        $failed_phrase,
+        $failed === 1 ? 'it has' : 'they have'
+    );
+}
+

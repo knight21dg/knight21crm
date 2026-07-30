@@ -23,19 +23,28 @@ $department_label  = $staff_departments ? implode(', ', array_column($staff_depa
                     _l('dev_portal_dashboard_assigned_projects'),
                     (int) $summary['assigned_projects'],
                     'fa-solid fa-diagram-project',
-                    'projects'
+                    'projects',
+                    '',
+                    null,
+                    admin_url('dev_portal/my_projects')
                 ); ?>
                 <?php staff_dashboard_kpi_card(
                     _l('dev_portal_dashboard_todays_tasks'),
                     (int) $summary['todays_tasks'],
                     'fa-solid fa-list-check',
-                    'notifications'
+                    'notifications',
+                    '',
+                    null,
+                    admin_url('dev_portal/my_tasks') . '?filter=today'
                 ); ?>
                 <?php staff_dashboard_kpi_card(
                     _l('dev_portal_dashboard_completed_tasks'),
                     (int) $summary['completed_tasks'],
                     'fa-solid fa-circle-check',
-                    'completed'
+                    'completed',
+                    '',
+                    null,
+                    admin_url('dev_portal/my_tasks') . '?status=completed'
                 ); ?>
                 <?php staff_dashboard_kpi_grid_close(); ?>
 
@@ -58,7 +67,7 @@ $department_label  = $staff_departments ? implode(', ', array_column($staff_depa
                         <?php staff_dashboard_panel_close(); ?>
                     </div>
                     <div class="col-md-6">
-                        <?php staff_dashboard_panel_open(_l('dev_portal_dashboard_attendance_summary'), 'fa-solid fa-clock'); ?>
+                        <?php staff_dashboard_panel_open(_l('dev_portal_dashboard_attendance_summary'), 'fa-solid fa-clock', admin_url('staff_attendance'), _l('dev_portal_attendance')); ?>
                         <?php if ($attendance_is_admin) { ?>
                             <div class="row">
                                 <?php foreach (get_attendance_statuses() as $status) { ?>

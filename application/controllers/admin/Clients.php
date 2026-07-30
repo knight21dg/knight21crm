@@ -1001,6 +1001,7 @@ class Clients extends AdminController
     {
         hooks()->do_action('before_do_bulk_action_for_customers');
         $total_deleted = 0;
+        $total_failed  = 0;
         if ($this->input->post()) {
             $ids    = $this->input->post('ids');
             $groups = $this->input->post('groups');
@@ -1008,8 +1009,21 @@ class Clients extends AdminController
             if (is_array($ids)) {
                 foreach ($ids as $id) {
                     if ($this->input->post('mass_delete')) {
-                        if ($this->clients_model->delete($id)) {
+                        // Clients_model::delete() returns true on success,
+                        // false when nothing was deleted, or an array
+                        // (['referenced' => true]) when blocked by related
+                        // invoices/estimates/credit notes - the same 3-way
+                        // result single-customer delete() already branches
+                        // on above. A bare truthy check here previously
+                        // counted the blocked-array case as a success,
+                        // since a non-empty array is truthy in PHP - this
+                        // is why bulk delete could report "N deleted" when
+                        // some (or all) of those customers were never
+                        // actually removed.
+                        if ($this->clients_model->delete($id) === true) {
                             $total_deleted++;
+                        } else {
+                            $total_failed++;
                         }
                     } else {
                         if (!is_array($groups)) {
@@ -1022,7 +1036,10 @@ class Clients extends AdminController
         }
 
         if ($this->input->post('mass_delete')) {
-            set_alert('success', _l('total_clients_deleted', $total_deleted));
+            set_alert(
+                $total_failed > 0 ? 'warning' : 'success',
+                bulk_delete_customers_result_message($total_deleted, $total_failed)
+            );
         }
     }
 

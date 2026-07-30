@@ -190,6 +190,11 @@ class Dev_portal extends AdminController
             // (get_tasks_priorities()/task_priority()/task_priority_color()
             // in application/helpers/tasks_helper.php), not a new one.
             '(SELECT MAX(t.priority) FROM ' . db_prefix() . "tasks t WHERE t.rel_type = 'project' AND t.rel_id = " . db_prefix() . 'projects.id) as derived_priority',
+            // Assigned Team - every staff member on tblproject_members for
+            // this project, comma-joined. No new column/table - reuses the
+            // same membership table authorize_project_access() already
+            // checks via Projects_model::is_member().
+            '(SELECT GROUP_CONCAT(CONCAT(s.firstname, " ", s.lastname) SEPARATOR ", ") FROM ' . db_prefix() . 'project_members pm JOIN ' . db_prefix() . 'staff s ON s.staffid = pm.staff_id WHERE pm.project_id = ' . db_prefix() . 'projects.id) as assigned_team',
         ]);
 
         $output  = $result['output'];
@@ -226,6 +231,8 @@ class Dev_portal extends AdminController
                 $row[] = '-';
             }
 
+            $row[] = $aRow['assigned_team'] ? e($aRow['assigned_team']) : '-';
+
             // Open - explicit action button into the Workspace, in
             // addition to the Project Name link above (same URL either
             // way) - derived, appended last, same convention as Priority
@@ -239,9 +246,20 @@ class Dev_portal extends AdminController
         echo json_encode($output);
     }
 
+    /**
+     * Dashboard-card deep-link filters (?filter=today, ?status=completed) -
+     * read once here so the view can show an active-filter badge, and
+     * again in my_tasks_table() (a separate AJAX request - see that
+     * method's own note) so the DataTable itself opens pre-filtered.
+     * Both call sites read the same two GET params, never a posted/
+     * trusted value, and only ever narrow further within
+     * get_my_tasks_where()'s own staff scoping - never widen it.
+     */
     public function my_tasks()
     {
-        $data['title'] = _l('dev_portal_my_tasks');
+        $data['title']  = _l('dev_portal_my_tasks');
+        $data['filter'] = $this->input->get('filter');
+        $data['status']  = $this->input->get('status');
         $this->load->view('my_tasks', $data);
     }
 
@@ -294,6 +312,20 @@ class Dev_portal extends AdminController
         $where = [
             'AND ' . $this->dev_portal_model->get_my_tasks_where($staff_id, $is_admin),
         ];
+
+        // Dashboard-card deep-link filters - narrow WITHIN the staff scoping
+        // above, never instead of it. This is a separate AJAX request from
+        // my_tasks() above (DataTables' own fetch), so the GET params are
+        // read again here directly from this request's own query string
+        // (my_tasks.php's JS appends location.search to the AJAX URL).
+        if ($this->input->get('filter') === 'today') {
+            $where[] = 'AND ' . db_prefix() . "tasks.duedate = '" . date('Y-m-d') . "'";
+            $where[] = 'AND ' . db_prefix() . 'tasks.status != ' . Tasks_model::STATUS_COMPLETE;
+        }
+
+        if ($this->input->get('status') === 'completed') {
+            $where[] = 'AND ' . db_prefix() . 'tasks.status = ' . Tasks_model::STATUS_COMPLETE;
+        }
 
         $result = data_tables_init($aColumns, $sIndexColumn, $sTable, $join, $where, [
             db_prefix() . 'tasks.id',

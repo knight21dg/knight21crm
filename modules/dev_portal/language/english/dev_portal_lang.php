@@ -45,7 +45,12 @@ $lang['dev_portal_column_project']          = 'Project';
 $lang['dev_portal_column_estimated_hours']  = 'Estimated Hours';
 $lang['dev_portal_column_hours_worked']     = 'Hours Worked';
 $lang['dev_portal_column_actions']          = 'Actions';
+$lang['dev_portal_column_assigned_team']    = 'Assigned Team';
 $lang['dev_portal_open']                   = 'Open';
+
+$lang['dev_portal_filter_today']     = "Showing: Today's Tasks";
+$lang['dev_portal_filter_completed'] = 'Showing: Completed Tasks';
+$lang['dev_portal_filter_clear']     = 'Clear filter';
 
 $lang['dev_portal_workspace_start_date']         = 'Start Date';
 $lang['dev_portal_workspace_department']         = 'Assigned Department';
