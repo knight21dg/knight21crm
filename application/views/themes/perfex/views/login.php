@@ -85,27 +85,16 @@
         max-height: 56px;
         width: auto;
         filter: drop-shadow(0 6px 14px rgb(37 99 235 / 0.16));
-        transition: filter .2s ease;
     }
 
-    /* Logo doubles as the portal-switch control (see the logo_href filter
-       just before the get_dark_company_logo() call below) - a subtle
-       pointer + scale lift indicates it's clickable, mirroring the same
-       hover treatment on the Admin Login logo. The idle drop-shadow above
-       is the same soft brand glow Admin Login uses in place of a white
-       badge container; it just deepens slightly on hover here. */
+    /* Plain branding element, not clickable - get_dark_company_logo()
+       always renders an <a>, so pointer-events:none is what actually
+       neutralizes it. The drop-shadow above is the same soft brand glow
+       Admin Login uses in place of a white badge container. */
     .customer-login-logo a {
         display: inline-flex;
-        cursor: pointer;
-        transition: transform .2s ease;
-    }
-
-    .customer-login-logo a:hover {
-        transform: scale(1.03);
-    }
-
-    .customer-login-logo a:hover img {
-        filter: drop-shadow(0 8px 18px rgb(37 99 235 / 0.26));
+        cursor: default;
+        pointer-events: none;
     }
 
     @media (max-width: 480px) {
@@ -196,29 +185,9 @@
             // 34px height rule (assets/themes/perfex/css/style.css), which
             // doesn't apply here since this page has no navbar, so it's sized
             // via a small inline cap instead of a new stylesheet rule.
-            //
-            // Portal switch: get_company_logo() normally points this logo at
-            // site_url() (the customer area itself); overriding via the
-            // logo_href filter sends it to Admin Login instead, mirroring
-            // the Admin Login logo's own link back to here.
-            //
-            // Scoped to just this one call, not the navbar's own logo
-            // (template_parts/navigation.php uses the same helper): despite
-            // navigation.php appearing "before" this file in index.php's
-            // markup, ClientsController::layout() actually renders this
-            // view (theme_template_view()) to a string FIRST, then renders
-            // index.php - which is what runs get_template_part('navigation')
-            // - afterward. So a filter left registered here would still be
-            // active when the navbar's own logo call runs and hijack it too
-            // (caught live: both links pointed at Admin Login). Removing it
-            // right after this call, using the same closure reference,
-            // keeps the effect scoped to only this logo.
-            $portal_switch_logo_href = function () {
-                return admin_url('authentication');
-            };
-            hooks()->add_filter('logo_href', $portal_switch_logo_href);
+            // Not a link to anywhere else - see the pointer-events:none
+            // rule on .customer-login-logo a above.
             get_dark_company_logo('', '');
-            hooks()->remove_filter('logo_href', $portal_switch_logo_href);
             ?>
         </div>
         <h1 class="tw-font-bold mbot20 login-heading">

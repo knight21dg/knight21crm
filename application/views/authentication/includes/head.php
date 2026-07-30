@@ -150,33 +150,23 @@
         justify-content: center;
     }
 
-    /* No badge/container - just the logo itself, doubling as the
-       portal-switch control (its inner <a>, output by
-       get_dark_company_logo(), links to the Customer Login page - see
-       admin_url() usage there / the mirrored logo_href filter on the
-       Customer Login side). A soft brand-color drop-shadow (not a box-
-       shadow, since there's no background shape to cast it from) stands
-       in for the old white badge's shadow, following the image's own
-       alpha silhouette. */
+    /* No badge/container - just the logo itself, as a plain branding
+       element (not clickable - get_dark_company_logo() always renders an
+       <a>, so pointer-events:none is what actually neutralizes it rather
+       than a routing/hook change). A soft brand-color drop-shadow (not a
+       box-shadow, since there's no background shape to cast it from)
+       stands in for the old white badge's shadow, following the image's
+       own alpha silhouette. */
     .authentication-form-wrapper .company-logo a {
         display: inline-flex;
-        cursor: pointer;
-        transition: transform .2s ease;
-    }
-
-    .authentication-form-wrapper .company-logo a:hover {
-        transform: scale(1.03);
+        cursor: default;
+        pointer-events: none;
     }
 
     .authentication-form-wrapper .company-logo img {
         max-height: 58px;
         width: auto;
         filter: drop-shadow(0 8px 18px rgb(79 70 229 / 0.28));
-        transition: filter .2s ease;
-    }
-
-    .authentication-form-wrapper .company-logo a:hover img {
-        filter: drop-shadow(0 10px 22px rgb(79 70 229 / 0.38));
     }
 
     .authentication-form-wrapper h1 {
