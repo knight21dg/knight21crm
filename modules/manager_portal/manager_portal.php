@@ -300,6 +300,23 @@ function manager_portal_restrict_native_controller_access()
     ];
 
     if (in_array(strtolower($CI->router->class), $restricted_controllers)) {
+        // AJAX-aware: this hook fires on admin_init, before the routed
+        // controller's own action ever runs - including for background
+        // requests (dashboard footer widgets, notification counts) that
+        // happen to target a restricted controller class. The plain,
+        // flash+redirect access_denied() below is correct for a genuine
+        // full-page navigation attempt, but for an XHR it made the
+        // browser silently receive the redirected page's HTML instead of
+        // the expected fragment, while leaving 'message-danger' flash
+        // data queued in session - which then surfaced as a stray
+        // "Access denied" toast on whatever unrelated page the user
+        // loaded next. ajax_access_denied() returns a plain 401 with no
+        // session flash write, exactly like every other AJAX endpoint in
+        // this codebase already does.
+        if ($CI->input->is_ajax_request()) {
+            ajax_access_denied();
+        }
+
         access_denied('Manager Portal');
     }
 }

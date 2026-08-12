@@ -179,11 +179,6 @@ hooks()->add_action('app_admin_footer', 'follow_up_management_hide_project_widge
 // uses this page.
 hooks()->add_action('app_admin_footer', 'follow_up_management_my_follow_ups_status_refresh_script');
 
-// Replaces the native Dashboard's Todo widget with Today's Calling
-// Summary for a plain Telecaller - see
-// follow_up_management_replace_todo_widget_script()'s own docblock.
-hooks()->add_action('app_admin_footer', 'follow_up_management_replace_todo_widget_script');
-
 // Native "Tasks" sidebar item redirect for a plain Telecaller. Confirmed
 // by reading App_menu::get() in full: every sidebar item registered via
 // add_sidebar_menu_item() (core's own 'tasks' item included -
@@ -584,8 +579,7 @@ function follow_up_management_reports_menu_item()
 /**
  * "My Follow-ups Due" dashboard widget - mirrors modules/goals/goals.php's
  * registration call exactly. Telecaller-only (same three-tier guard as
- * follow_up_management_hide_project_widgets_script()/
- * follow_up_management_replace_todo_widget_script() below): Admin no
+ * follow_up_management_hide_project_widgets_script() below): Admin no
  * longer performs day-to-day follow-up work from the native Dashboard, so
  * this personal queue card has no reason to register there. This is a
  * role-gated no-op, not a deletion - the widget file, its language
@@ -1624,11 +1618,25 @@ function follow_up_management_task_workspace_script()
  * and even there, only for a plain Telecaller (Admins/Managers keep the
  * native My Tasks tab).
  *
+ * Root-cause fix: this used to skip the staff_cant('view', 'leads')
+ * check that every other Telecaller-facing entry point in this module
+ * requires (my_follow_ups_widget() below - the AJAX endpoint that fills
+ * in the tab this swaps in - has always required it). A real Telecalling
+ * department member who exists in the department but hasn't (yet) been
+ * granted the native "Leads -> View" staff permission would still get
+ * this tab swapped in here, then watch its content request fail with a
+ * 401 every time - a broken/permanently-loading tab instead of the tab
+ * simply not appearing, which is how every other gate in this module
+ * already degrades for that same staff member (the sidebar item itself,
+ * my_follow_ups(), dashboard(), etc. all already require this same
+ * capability). Matching the guard here keeps the Dashboard consistent
+ * with the rest of the module instead of exposing a dead tab.
+ *
  * @return void
  */
 function follow_up_management_dashboard_tab_swap_script()
 {
-    if (!is_staff_member() || is_admin() || staff_can('view_department', 'follow_up_management') || !follow_up_management_is_telecalling_department_member()) {
+    if (!is_staff_member() || is_admin() || staff_can('view_department', 'follow_up_management') || !follow_up_management_is_telecalling_department_member() || staff_cant('view', 'leads')) {
         return;
     }
     ?>
@@ -1806,80 +1814,28 @@ function follow_up_management_my_follow_ups_status_refresh_script()
 }
 
 /**
- * Replaces the native Dashboard's "Latest to do's"/"Latest finished
- * to do's" widget (application/views/admin/dashboard/widgets/todos.php,
- * id "widget-todos" - confirmed not its own removable get_dashboard_widgets
- * entry-worth-keeping-separate, but IS a single self-contained widget
- * file, so hiding the whole thing is a clean one-line target unlike the
- * fused top_stats/user_data pieces above) with "Today's Calling
- * Summary" for a plain Telecaller - "these are not useful for
- * Telecallers." Same three-tier guard, same client-side hide (Todo
- * backend/tbltodos/Todo_model completely untouched - still fully
- * functional for whoever can still see the widget), same
- * requestGet()-fetched-fragment convention already used for the
- * Dashboard's own My Follow-ups tab content.
- *
- * @return void
- */
-function follow_up_management_replace_todo_widget_script()
-{
-    if (!is_staff_member() || is_admin() || staff_can('view_department', 'follow_up_management') || !follow_up_management_is_telecalling_department_member()) {
-        return;
-    }
-    ?>
-    <script>
-    (function () {
-        var todoWidget = document.getElementById('widget-todos');
-        if (!todoWidget) {
-            return;
-        }
-
-        var summaryWidget = document.createElement('div');
-        summaryWidget.className = 'widget';
-        summaryWidget.id = 'widget-calling_summary';
-        summaryWidget.innerHTML =
-            '<div class="panel_s">' +
-                '<div class="panel-body">' +
-                    '<h4 class="no-margin">' + <?= json_encode(_l('followup_calling_summary_title')); ?> + '</h4>' +
-                    '<hr class="hr-panel-separator" />' +
-                    '<div id="calling-summary-content"><i class="fa-solid fa-spinner fa-spin"></i></div>' +
-                '</div>' +
-            '</div>';
-
-        todoWidget.parentNode.replaceChild(summaryWidget, todoWidget);
-
-        // jQuery's .html() (not raw .innerHTML =) is required here: the
-        // fragment's own <script> tag (the expand/collapse toggle wiring
-        // in calling_summary_widget.php) only runs if the browser
-        // actually parses/executes it, and browsers do not execute
-        // <script> tags assigned via .innerHTML - jQuery's .html()
-        // explicitly extracts and evals them, which is why this widget's
-        // click handler was live-confirmed dead (in the DOM, no-op) until
-        // this line changed from .innerHTML to $().html().
-        requestGet('follow_up_management/calling_summary_widget').done(function (response) {
-            $('#calling-summary-content').html(response);
-        });
-    })();
-    </script>
-    <?php
-}
-
-/**
  * sidebar_menu_items filter (App_menu::get()) - rewrites the native
  * 'tasks' top-level item's href/name in place for a plain Telecaller,
- * same three-tier guard as the Dashboard tab swap above. $items is keyed
- * by slug with each value an item array ('name'/'href'/'icon'/... -
- * 'children' is computed separately by get_child(), not present here),
- * exactly what App_menu::add_sidebar_menu_item() stored - confirmed by
- * reading App_menu.php in full. Every other sidebar item (including this
- * module's own 'follow_up_management' item) passes through untouched.
+ * same three-tier guard as the Dashboard tab swap above (plus the same
+ * staff_cant('view', 'leads') addition - see that function's docblock
+ * for the root cause: without it, a real Telecalling department member
+ * who hasn't yet been granted the native Leads capability would have
+ * their working native "Tasks" link silently rewritten to point at
+ * my_follow_ups(), which denies them - trading a page that worked for
+ * one that doesn't, for someone this module is not yet able to serve).
+ * $items is keyed by slug with each value an item array ('name'/'href'/
+ * 'icon'/... - 'children' is computed separately by get_child(), not
+ * present here), exactly what App_menu::add_sidebar_menu_item() stored -
+ * confirmed by reading App_menu.php in full. Every other sidebar item
+ * (including this module's own 'follow_up_management' item) passes
+ * through untouched.
  *
  * @param array $items
  * @return array
  */
 function follow_up_management_redirect_tasks_sidebar_item($items)
 {
-    if (!is_staff_member() || is_admin() || staff_can('view_department', 'follow_up_management') || !follow_up_management_is_telecalling_department_member()) {
+    if (!is_staff_member() || is_admin() || staff_can('view_department', 'follow_up_management') || !follow_up_management_is_telecalling_department_member() || staff_cant('view', 'leads')) {
         return $items;
     }
 

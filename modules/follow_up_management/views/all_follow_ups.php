@@ -5,7 +5,20 @@
 // column set are simplified for a plain Telecaller, same guard used
 // throughout this module. Admin/Manager keep the original page byte-
 // for-byte (below, in the else branch).
-$is_telecaller = is_staff_member() && !is_admin() && !staff_can('view_department', 'follow_up_management');
+//
+// Root-cause fix: this used to be "is_staff_member() && !is_admin() &&
+// !staff_can('view_department', 'follow_up_management')" - true for ANY
+// non-admin/non-manager staff who can reach this page at all (the
+// controller only gates on the broad, commonly-granted native
+// staff_can('view','leads') capability, not a department check), so any
+// such staff member - regardless of actual department - was shown the
+// simplified Telecaller UI here even if they've never been added to the
+// Telecalling Business Department. Every other Telecaller check in this
+// module already requires real Telecalling-department membership (see
+// follow_up_management_is_telecalling_department_member()'s own
+// docblock for the identical leak, fixed there); this view had drifted
+// out of sync with that fix.
+$is_telecaller = follow_up_management_is_telecalling_department_member() && !is_admin() && !staff_can('view_department', 'follow_up_management');
 
 // Browser tab <title> comes from application/views/admin/includes/
 // head.php's own $title, read from CI's cached view vars

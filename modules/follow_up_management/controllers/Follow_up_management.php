@@ -619,28 +619,6 @@ class Follow_up_management extends AdminController
     }
 
     /**
-     * "Today's Calling Summary" - the native Dashboard's Todo-widget
-     * replacement for a plain Telecaller (see
-     * follow_up_management_replace_todo_widget_script() in
-     * follow_up_management.php for the client-side hide/inject). Exact
-     * same shape as my_follow_ups_widget() above - a small AJAX-fetched
-     * HTML fragment, same permission gate, same reused-model-data
-     * pattern (Follow_ups_model::get_todays_calling_summary(), which
-     * itself reuses two already-existing private count methods, not new
-     * tracking).
-     */
-    public function calling_summary_widget()
-    {
-        if (staff_cant('view', 'leads') || !follow_up_management_can_access_telecaller_pages()) {
-            ajax_access_denied();
-        }
-
-        $data['summary'] = $this->follow_ups_model->get_todays_calling_summary();
-        $data['details'] = $this->follow_ups_model->get_todays_calling_summary_details();
-        $this->load->view('calling_summary_widget', $data);
-    }
-
-    /**
      * Today's Follow-ups - Overdue / Due Today / Completed Today, grouped
      * and counted by Follow_ups_model::get_todays_followups_grouped()
      * (same visibility scope as My Cases).

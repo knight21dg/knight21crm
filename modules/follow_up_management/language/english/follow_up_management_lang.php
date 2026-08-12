@@ -409,16 +409,7 @@ $lang['followup_dashboard_my_assigned_leads']     = 'My Assigned Leads';
 $lang['followup_dashboard_customer_confirmed']    = 'Customer Confirmed';
 $lang['followup_dashboard_lost_leads']            = 'Lost Leads';
 
-// Telecaller Portal enhancements: Calling Summary widget + auto-forward
-$lang['followup_calling_summary_title']           = "Today's Calling Summary";
-$lang['followup_calling_summary_completed']       = 'Completed Calls';
-$lang['followup_calling_summary_pending']         = 'Pending Calls';
-$lang['followup_calling_summary_tomorrow']        = "Tomorrow's Calls";
-$lang['followup_calling_summary_overdue']         = 'Overdue Calls';
-$lang['followup_calling_summary_completion']      = 'Completion Rate';
-$lang['followup_calling_summary_view_details']    = 'View Details';
-$lang['followup_calling_summary_show_less']       = 'Show Less';
-$lang['followup_calling_summary_no_records']      = 'No records.';
+// Telecaller Portal enhancements: auto-forward
 $lang['followup_history_auto_forwarded']          = 'Auto-forwarded to tomorrow';
 
 // Step 4 - Telecaller Lead page

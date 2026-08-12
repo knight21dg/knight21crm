@@ -320,6 +320,17 @@ function dm_portal_restrict_native_controller_access()
     ];
 
     if (in_array(strtolower($CI->router->class), $restricted_controllers)) {
+        // AJAX-aware - see the identical comment in
+        // modules/manager_portal/manager_portal.php's own
+        // *_restrict_native_controller_access() for the root cause this
+        // guards against (a background/footer-script AJAX request
+        // hitting a restricted controller class getting the flash+
+        // redirect access_denied(), which then surfaces as a stray
+        // "Access denied" toast on an unrelated later page).
+        if ($CI->input->is_ajax_request()) {
+            ajax_access_denied();
+        }
+
         access_denied('Digital Marketing Portal');
     }
 }
