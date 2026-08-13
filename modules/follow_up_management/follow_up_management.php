@@ -15,6 +15,7 @@ hooks()->add_action('admin_init', 'follow_up_management_module_init_menu_items')
 hooks()->add_action('admin_init', 'follow_up_management_reports_menu_item');
 hooks()->add_action('admin_init', 'follow_up_management_permissions');
 hooks()->add_filter('get_dashboard_widgets', 'follow_up_management_add_dashboard_widget');
+hooks()->add_filter('get_dashboard_widgets', 'follow_up_management_add_todays_followups_widget');
 hooks()->add_filter('get_dashboard_widgets', 'follow_up_management_remove_admin_operational_widgets');
 hooks()->add_filter('get_dashboard_widgets', 'follow_up_management_remove_telecaller_ticket_widgets');
 
@@ -678,6 +679,63 @@ function follow_up_management_remove_telecaller_ticket_widgets($widgets)
     return array_values(array_filter($widgets, function ($widget) {
         return $widget['path'] !== 'admin/dashboard/widgets/tickets_chart';
     }));
+}
+
+/**
+ * "Today's Follow-ups" widget for the native Dashboard's main/left column -
+ * this is what moves the FullCalendar out of the first-major-content spot:
+ * the new widget (modules/follow_up_management/views/
+ * dashboard_todays_followups.php) is spliced into get_dashboard_widgets()
+ * IMMEDIATELY BEFORE the core 'admin/dashboard/widgets/calendar' entry, so
+ * with the default (non-customized) widget order the Telecaller's daily
+ * queue renders above the calendar in the same left-8 container. The
+ * calendar widget itself is completely untouched - every one of its
+ * existing controls (Month/Week/Day/Today/Expand/Filter By/Previous/Next)
+ * keeps working exactly as before, it simply renders after this card.
+ *
+ * Plain Telecaller only - the same three-tier guard every other
+ * Telecaller-only customization in this file uses (Admin/Manager keep the
+ * unmodified native dashboard, other departments never match the
+ * Telecalling-membership check). The widget's rows reuse
+ * Follow_ups_model::get_todays_followups_grouped(), which already applies
+ * get_followup_case_visibility_where() - a plain Telecaller therefore only
+ * ever sees their OWN assigned follow-ups, with no staff/department IDs
+ * hardcoded anywhere. If the logged-in staff has a saved custom dashboard
+ * order, the widget system appends this brand-new widget at the end of the
+ * column instead - still fully draggable via the existing dashboard
+ * options, and the default order (the common case) is exactly as required.
+ *
+ * @param  array $widgets
+ * @return array
+ */
+function follow_up_management_add_todays_followups_widget($widgets)
+{
+    if (!is_staff_member() || is_admin() || staff_can('view_department', 'follow_up_management') || !follow_up_management_is_telecalling_department_member()) {
+        return $widgets;
+    }
+
+    $entry = [
+        'path'      => 'follow_up_management/dashboard_todays_followups',
+        'container' => 'left-8',
+    ];
+
+    $calendar_index = null;
+    foreach ($widgets as $key => $widget) {
+        if (($widget['path'] ?? '') === 'admin/dashboard/widgets/calendar') {
+            $calendar_index = $key;
+            break;
+        }
+    }
+
+    // Calendar entry missing (future core change) - append at the end
+    // rather than break the dashboard render.
+    if ($calendar_index === null) {
+        $widgets[] = $entry;
+    } else {
+        array_splice($widgets, $calendar_index, 0, [$entry]);
+    }
+
+    return $widgets;
 }
 
 /**
