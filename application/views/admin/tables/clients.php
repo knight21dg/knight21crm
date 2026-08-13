@@ -23,15 +23,26 @@ return App_table::find('clients')
             db_prefix() . 'clients.phonenumber as phonenumber',
             db_prefix() . 'clients.active',
             '(SELECT GROUP_CONCAT(name SEPARATOR ",") FROM ' . db_prefix() . 'customer_groups JOIN ' . db_prefix() . 'customers_groups ON ' . db_prefix() . 'customer_groups.groupid = ' . db_prefix() . 'customers_groups.id WHERE customer_id = ' . db_prefix() . 'clients.userid ORDER by name ASC) as customerGroups',
-            'department',
-            'employee_name',
+            // Work-tracking columns (Department, Employee, Assigned Work, Work
+            // Status, Due Date, Progress, Last Updated) - the Customers list
+            // reads them from the customer's latest related project record
+            // (single source of truth: the project owns these values; the
+            // Admin Projects list, employee panels and the Customer Portal
+            // all read the same project record), falling back to the
+            // customer row's own columns only when the customer has no
+            // project yet. COALESCE(...) expressions with explicit aliases
+            // pass through data_tables_init() unchanged (confirmed in
+            // application/helpers/datatables_helper.php), so sorting and
+            // search operate on the effective values.
+            'COALESCE((SELECT ' . db_prefix() . 'projects.department FROM ' . db_prefix() . 'projects WHERE clientid = ' . db_prefix() . 'clients.userid ORDER BY id DESC LIMIT 1), ' . db_prefix() . 'clients.department) as effective_department',
+            'COALESCE((SELECT ' . db_prefix() . 'projects.assigned_employee FROM ' . db_prefix() . 'projects WHERE clientid = ' . db_prefix() . 'clients.userid ORDER BY id DESC LIMIT 1), ' . db_prefix() . 'clients.employee_name) as effective_employee',
             lead_converted_from_sql_case() . ' as converted_from',
             lead_converted_by_name_expr() . ' as converted_by_name',
-            'assigned_work',
-            'work_status',
-            'due_date',
-            'progress',
-            'last_updated',
+            'COALESCE((SELECT ' . db_prefix() . 'projects.assigned_work FROM ' . db_prefix() . 'projects WHERE clientid = ' . db_prefix() . 'clients.userid ORDER BY id DESC LIMIT 1), ' . db_prefix() . 'clients.assigned_work) as effective_assigned_work',
+            'COALESCE((SELECT ' . db_prefix() . 'projects.work_status FROM ' . db_prefix() . 'projects WHERE clientid = ' . db_prefix() . 'clients.userid ORDER BY id DESC LIMIT 1), ' . db_prefix() . 'clients.work_status) as effective_work_status',
+            'COALESCE((SELECT ' . db_prefix() . 'projects.deadline FROM ' . db_prefix() . 'projects WHERE clientid = ' . db_prefix() . 'clients.userid ORDER BY id DESC LIMIT 1), ' . db_prefix() . 'clients.due_date) as effective_due_date',
+            'COALESCE((SELECT ' . db_prefix() . 'projects.progress FROM ' . db_prefix() . 'projects WHERE clientid = ' . db_prefix() . 'clients.userid ORDER BY id DESC LIMIT 1), ' . db_prefix() . 'clients.progress) as effective_progress',
+            'COALESCE((SELECT ' . db_prefix() . 'projects.last_updated FROM ' . db_prefix() . 'projects WHERE clientid = ' . db_prefix() . 'clients.userid ORDER BY id DESC LIMIT 1), ' . db_prefix() . 'clients.last_updated) as effective_last_updated',
             db_prefix() . 'clients.datecreated as datecreated',
         ];
 
@@ -120,14 +131,22 @@ return App_table::find('clients')
             // User id
             $row[] = $aRow['userid'];
 
-            // Company
-            $company  = e($aRow['company']);
+            // Company - the actual customer/company name only. A customer created
+            // without a company name renders the fixed literal 'Unknown'
+            // (single shared rule: customer_company_name_display(),
+            // application/helpers/clients_helper.php) - NEVER the primary
+            // contact's profile. The old fallback used
+            // _l('no_company_view_profile'), which the language file
+            // defines as 'Person - View Profile' - that string made the
+            // Company column act like a contact column and is no longer
+            // used anywhere in this table.
             $isPerson = false;
 
-            if ($company == '') {
-                $company  = _l('no_company_view_profile');
+            if (trim((string) $aRow['company']) === '') {
                 $isPerson = true;
             }
+
+            $company = e(customer_company_name_display($aRow['company']));
 
             $url = admin_url('clients/client/' . $aRow['userid']);
 
@@ -194,7 +213,7 @@ return App_table::find('clients')
 
             // Department (Leads-Status-style inline-editable dropdown) - now a real
             // Business Department id, options/labels resolved from get_business_departments()
-            $currentDepartmentId = $aRow['department'];
+            $currentDepartmentId = $aRow['effective_department'];
             $currentDepartmentName = '';
             foreach ($departments as $departmentOption) {
                 if ($departmentOption['id'] == $currentDepartmentId) {
@@ -216,7 +235,7 @@ return App_table::find('clients')
 
             // Employee (dependent on Department; Leads-Status-style dropdown) - now a real
             // staff_id, options come from get_business_department_staff() (real tblstaff records)
-            $currentEmployeeId = $aRow['employee_name'];
+            $currentEmployeeId = $aRow['effective_employee'];
             if (empty($currentDepartmentId)) {
                 $row[] = '<span class="text-muted">-</span>';
             } else {
@@ -258,10 +277,10 @@ return App_table::find('clients')
             $row[] = $aRow['converted_by_name'] ? e($aRow['converted_by_name']) : '-';
 
             // Assigned Work (read-only, truncated + full text on tooltip)
-            $row[] = $aRow['assigned_work'] ? '<span data-toggle="tooltip" data-title="' . e($aRow['assigned_work']) . '">' . e(mb_strimwidth($aRow['assigned_work'], 0, 50, '...')) . '</span>' : '';
+            $row[] = $aRow['effective_assigned_work'] ? '<span data-toggle="tooltip" data-title="' . e($aRow['effective_assigned_work']) . '">' . e(mb_strimwidth($aRow['effective_assigned_work'], 0, 50, '...')) . '</span>' : '';
 
             // Work Status (exact Leads-Status dropdown + colors)
-            $currentWorkStatus = $aRow['work_status'];
+            $currentWorkStatus = $aRow['effective_work_status'];
             $statusToggleLabel = $currentWorkStatus ? e($currentWorkStatus) : _l('client_work_status_not_started');
             $statusToggleStyle = '';
             if ($currentWorkStatus) {
@@ -280,8 +299,8 @@ return App_table::find('clients')
             $row[] = $outputWorkStatus;
 
             // Due Date (d-M-Y, color-coded)
-            $dueDateClass = get_due_date_class($aRow['due_date'], $aRow['work_status']);
-            $row[]        = $aRow['due_date'] ? '<span class="' . $dueDateClass . '">' . e(date('d-M-Y', strtotime($aRow['due_date']))) . '</span>' : '';
+            $dueDateClass = get_due_date_class($aRow['effective_due_date'], $aRow['effective_work_status']);
+            $row[]        = $aRow['effective_due_date'] ? '<span class="' . $dueDateClass . '">' . e(date('d-M-Y', strtotime($aRow['effective_due_date']))) . '</span>' : '';
 
             // Progress (read-only Bootstrap progress bar - display only, edited from the Customer Edit page).
             // Resolved through the same Work Status -> Progress rule used on
@@ -290,12 +309,12 @@ return App_table::find('clients')
             // directly, so a row whose progress drifted out of sync with
             // its status (e.g. legacy data from before this rule existed)
             // always renders correctly without needing a data migration.
-            $progressValue  = resolve_client_progress_for_status($currentWorkStatus, (int) $aRow['progress']);
+            $progressValue  = resolve_client_progress_for_status($currentWorkStatus, (int) $aRow['effective_progress']);
             $progressColor  = get_progress_bar_color($progressValue);
             $row[]          = '<div class="progress progress-bar-mini" style="min-width:100px;"><div class="progress-bar" role="progressbar" aria-valuenow="' . $progressValue . '" aria-valuemin="0" aria-valuemax="100" data-percent="' . $progressValue . '" style="width: ' . $progressValue . '%;background-color:' . $progressColor . ';">' . $progressValue . '%</div></div>';
 
             // Last Updated
-            $row[] = $aRow['last_updated'] ? '<span class="text-has-action" data-toggle="tooltip" data-title="' . e(_dt($aRow['last_updated'])) . '">' . e(time_ago($aRow['last_updated'])) . '</span>' : '-';
+            $row[] = $aRow['effective_last_updated'] ? '<span class="text-has-action" data-toggle="tooltip" data-title="' . e(_dt($aRow['effective_last_updated'])) . '">' . e(time_ago($aRow['effective_last_updated'])) . '</span>' : '-';
 
             $row[] = e(_dt($aRow['datecreated']));
 

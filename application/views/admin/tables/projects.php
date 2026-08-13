@@ -34,7 +34,12 @@ return App_table::find('projects')
         $sTable       = db_prefix() . 'projects';
 
         $join = [
-            'JOIN ' . db_prefix() . 'clients ON ' . db_prefix() . 'clients.userid = ' . db_prefix() . 'projects.clientid',
+            // LEFT JOIN (not INNER): a project whose clientid points at a
+            // customer that no longer exists, or at no customer at all
+            // (clientid 0), must still appear in the list - its Customer
+            // column then renders 'Unknown' via
+            // customer_company_name_display().
+            'LEFT JOIN ' . db_prefix() . 'clients ON ' . db_prefix() . 'clients.userid = ' . db_prefix() . 'projects.clientid',
         ];
 
         $where  = [];
@@ -114,13 +119,28 @@ return App_table::find('projects')
 
             $row[] = $name;
 
-            $row[] = '<a href="' . admin_url('clients/client/' . $aRow['clientid']) . '">' . e($aRow['company']) . '</a>';
+            $companyName = customer_company_name_display($aRow['company']);
+
+            $row[] = $companyName === 'Unknown'
+                ? '<span class="text-muted">Unknown</span>'
+                : '<a href="' . admin_url('clients/client/' . $aRow['clientid']) . '">' . e($companyName) . '</a>';
 
             $row[] = render_tags($aRow['tags']);
 
             $row[] = e(_d($aRow['start_date']));
 
-            $row[] = e(_d($aRow['deadline']));
+            // Deadline (admin-only inline date edit; read-only _d() display
+            // otherwise). Saves through the same update_assignment_field()
+            // endpoint as every other inline edit - the server converts to
+            // SQL date exactly like the edit form's Deadline field, and
+            // there is no second deadline stored anywhere.
+            if ($hasPermissionEdit) {
+                $row[] = '<span class="project-editable-date" data-id="' . $aRow['id'] . '" data-value="' . e(_d($aRow['deadline'])) . '" onclick="project_edit_deadline(this);" style="cursor:pointer;" data-toggle="tooltip" data-title="' . e(_l('project_click_to_edit')) . '">'
+                    . ($aRow['deadline'] ? e(_d($aRow['deadline'])) : '<span class="text-muted">-</span>')
+                    . '</span>';
+            } else {
+                $row[] = e(_d($aRow['deadline']));
+            }
 
             $membersOutput = '<div class="tw-flex -tw-space-x-1">';
             $members       = explode(',', $aRow['members']);
@@ -236,9 +256,28 @@ return App_table::find('projects')
 
             // Progress - single shared resolver (Projects_model::resolve_progress_value()),
             // also reused by the Customer Portal Projects list so both always match.
+            // Admin-only inline dropdown (same get_progress_options() data as the
+            // project edit form), otherwise read-only - Progress and Work Status
+            // are co-synced on write (reconcile_single_status()), so editing either
+            // keeps them agreeing.
             $progressValue = $CI->projects_model->resolve_progress_value($aRow);
             $progressColor = get_progress_bar_color($progressValue);
-            $row[]         = '<div class="progress progress-bar-mini" style="min-width:100px;"><div class="progress-bar" role="progressbar" aria-valuenow="' . $progressValue . '" aria-valuemin="0" aria-valuemax="100" style="width: ' . $progressValue . '%;background-color:' . $progressColor . ';">' . $progressValue . '%</div></div>';
+            $progressBar   = '<div class="progress progress-bar-mini" style="min-width:100px;"><div class="progress-bar" role="progressbar" aria-valuenow="' . $progressValue . '" aria-valuemin="0" aria-valuemax="100" style="width: ' . $progressValue . '%;background-color:' . $progressColor . ';">' . $progressValue . '%</div></div>';
+
+            if ($hasPermissionEdit) {
+                $outputProgress  = '<div class="dropdown inline-block">';
+                $outputProgress .= '<a href="#" class="dropdown-toggle" id="tableProjectProgress-' . $aRow['id'] . '" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">' . $progressBar . '</a>';
+                $outputProgress .= '<ul class="dropdown-menu dropdown-menu-right" aria-labelledby="tableProjectProgress-' . $aRow['id'] . '">';
+                foreach (get_progress_options() as $progressOption) {
+                    if ((int) $progressOption != $progressValue) {
+                        $outputProgress .= '<li><a href="#" onclick="project_mark_as(\'progress\',\'' . (int) $progressOption . '\',' . $aRow['id'] . '); return false;">' . (int) $progressOption . '%</a></li>';
+                    }
+                }
+                $outputProgress .= '</ul></div>';
+                $row[] = $outputProgress;
+            } else {
+                $row[] = $progressBar;
+            }
 
             // Status Description
             $row[] = $aRow['status_description'] != '' ? '<span data-toggle="tooltip" data-title="' . e($aRow['status_description']) . '">' . e(mb_strimwidth($aRow['status_description'], 0, 50, '...')) . '</span>' : '-';

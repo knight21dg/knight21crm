@@ -151,7 +151,7 @@ class Projects extends AdminController
 
         $field = $this->input->post('field');
 
-        if (!in_array($field, ['department', 'assigned_employee', 'assigned_work', 'work_status'], true)) {
+        if (!in_array($field, ['department', 'assigned_employee', 'assigned_work', 'work_status', 'progress', 'deadline'], true)) {
             return;
         }
 

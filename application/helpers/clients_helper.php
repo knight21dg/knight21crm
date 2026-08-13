@@ -1430,6 +1430,25 @@ function get_work_status_color($status) {
 }
 
 /**
+ * Single source for the customer company name as it should be DISPLAYED
+ * in list columns (Admin Customers, Admin Projects, employee panels):
+ * a real company name is shown as-is, while NULL / empty / whitespace-only
+ * values (a customer genuinely created without a company name) render the
+ * fixed literal 'Unknown'. Never manufactures a name from the contact's
+ * profile - the Companies vs Primary Contact columns stay separate.
+ *
+ * @param string|null $company
+ *
+ * @return string
+ */
+function customer_company_name_display($company)
+{
+    $company = trim((string) $company);
+
+    return $company !== '' ? $company : 'Unknown';
+}
+
+/**
  * Single reusable source for the Progress dropdown options (form + list).
  *
  * @return array

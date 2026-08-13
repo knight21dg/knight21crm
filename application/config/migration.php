@@ -69,7 +69,7 @@ $config['migration_auto_latest'] = false;
 | be upgraded / downgraded to.
 |
 */
-$config['migration_version'] = 381; // Smart Attendance v2 Part 2: attendance_audit_log
+$config['migration_version'] = 382; // Single project status unification: work_status <-> status backfill
 
 /*
 |--------------------------------------------------------------------------

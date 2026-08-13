@@ -120,5 +120,74 @@ render_datatable($table_data, isset($class) ?  $class : 'projects', ['number-ind
             }
         });
     }
+
+    function project_edit_deadline(el) {
+        var $el = $(el);
+        if ($el.find('input').length > 0) {
+            return;
+        }
+        var id = $el.data('id');
+        var currentValue = $el.data('value') || '';
+        var $input = $('<input type="text" class="form-control input-sm datepicker">').val(currentValue);
+        $el.empty().append($input);
+        $input.trigger('focus');
+
+        var save = function() {
+            var newValue = $input.val();
+            if (newValue === '') {
+                reload_projects_table();
+                return;
+            }
+            $.post(admin_url + 'projects/update_assignment_field/' + id, {
+                field: 'deadline',
+                value: newValue
+            }).done(function() {
+                reload_projects_table();
+            });
+        };
+
+        $input.on('blur', save);
+        $input.on('keydown', function(e) {
+            if (e.which === 13) {
+                e.preventDefault();
+                $input.trigger('blur');
+            }
+        });
+
+        if (typeof init_datepicker === 'function') {
+            init_datepicker();
+        }
+    }
+
+    function project_edit_progress(el) {
+        var $el = $(el);
+        if ($el.find('select').length > 0) {
+            return;
+        }
+        var id = $el.data('id');
+        var currentValue = parseInt($el.data('value') || '0', 10);
+        var $select = $('<select class="form-control input-sm">');
+        var options = $el.data('options') ? $el.data('options').split(',') : [];
+        for (var i = 0; i < options.length; i++) {
+            var v = parseInt(options[i], 10);
+            $select.append($('<option>').val(v).text(v + '%').prop('selected', v === currentValue));
+        }
+        $el.empty().append($select);
+        $select.trigger('focus');
+
+        var save = function() {
+            var newValue = $select.val();
+            $select.off('change change', save);
+            $.post(admin_url + 'projects/update_assignment_field/' + id, {
+                field: 'progress',
+                value: newValue
+            }).done(function() {
+                reload_projects_table();
+            });
+        };
+
+        $select.on('change', save);
+        $select.on('blur', save);
+    }
 </script>
 <?php } ?>

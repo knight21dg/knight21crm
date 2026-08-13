@@ -1048,6 +1048,22 @@ class Projects_model extends App_Model
 
         $data['last_updated'] = date('Y-m-d H:i:s');
 
+        // Single status: keep the custom Work Status and the core Perfex
+        // status column agreeing on every edit-form save - see
+        // reconcile_single_status(). The full edit form is the only place
+        // that posts both fields; the Work Status (the fork's primary
+        // status UI) wins when they disagree, and a status 4-transition
+        // gets its date_finished set here - the core update() only ever
+        // cleared it.
+        $old_row_for_sync = $this->db->select('status, work_status, progress, date_finished')
+            ->where('id', $id)
+            ->get(db_prefix() . 'projects')
+            ->row();
+
+        if ($old_row_for_sync) {
+            $this->reconcile_single_status($data, $old_row_for_sync);
+        }
+
         $data = hooks()->apply_filters('before_update_project', $data, $id);
 
         $this->db->where('id', $id);
@@ -1145,9 +1161,80 @@ class Projects_model extends App_Model
      * @param  mixed   $value
      * @return boolean
      */
+    /**
+     * Single-status reconciliation - the one place where the project's two
+     * status representations are kept answering the same question:
+     *
+     *   status       - core Perfex status id (1-5), read by the employee
+     *                  Development Portal, Dashboard widgets, the native
+     *                  staff panel (staff_projects), Kanban, billing,
+     *                  task-completion cascades and notifications;
+     *   work_status  - the fork's custom status label, read by the Admin
+     *                  Projects/Customers lists and the Customer Portal.
+     *
+     * Both are views of ONE project status and are therefore written
+     * together by every write path that reaches this helper
+     * (update_assignment_field(), mark_as(), update()). The Work Status
+     * label is the primary surface the Admin operates - the full edit
+     * form posts both fields, and when they disagree the Work Status
+     * wins. Whenever the effective status genuinely changes, the stored
+     * progress also follows the shared Work Status -> Progress rule
+     * (resolve_client_progress_for_status(), the exact rule the Customers
+     * side applies) so every consumer that reads the progress column
+     * directly (Manager Portal, exports) matches what the lists display,
+     * and the finished-on bookkeeping (date_finished) is set/cleared in
+     * lockstep with the status 4 <-> other transitions. An unchanged
+     * status never rewrites progress, so a manually-set progress value
+     * (e.g. In Progress with 60%) survives resaving the same status.
+     *
+     * @param array           $data write payload, by reference -
+     *                              'status'/'work_status'/'progress'/
+     *                              'date_finished' are added or
+     *                              overwritten in place
+     * @param stdClass|object $old  stored row snapshot before this write
+     *                              (status, work_status, progress,
+     *                              date_finished)
+     *
+     * @return void
+     */
+    private function reconcile_single_status(&$data, $old)
+    {
+        $workStatusToStatus = [
+            'Pending'     => 1,
+            'In Progress' => 2,
+            'On Hold'     => 3,
+            'Completed'   => 4,
+            'Cancelled'   => 5,
+        ];
+        $statusToWorkStatus = array_flip($workStatusToStatus);
+
+        if (isset($data['work_status']) && isset($workStatusToStatus[$data['work_status']])) {
+            $data['status'] = $workStatusToStatus[$data['work_status']];
+        } elseif (isset($data['status']) && isset($statusToWorkStatus[(int) $data['status']])) {
+            $data['work_status'] = $statusToWorkStatus[(int) $data['status']];
+        } else {
+            // No recognized status field in this payload - nothing to
+            // reconcile (e.g. partial API/client-side updates).
+            return;
+        }
+
+        $statusChanged = (int) $data['status'] != (int) $old->status
+            || (isset($data['work_status']) && $data['work_status'] !== $old->work_status);
+
+        if ($statusChanged) {
+            $data['progress'] = resolve_client_progress_for_status($data['work_status'], (int) $old->progress);
+
+            if ($data['status'] == 4 && empty($old->date_finished)) {
+                $data['date_finished'] = date('Y-m-d H:i:s');
+            } elseif ($data['status'] != 4 && $old->status == 4 && !empty($old->date_finished)) {
+                $data['date_finished'] = null;
+            }
+        }
+    }
+
     public function update_assignment_field($id, $field, $value)
     {
-        if (!in_array($field, ['department', 'assigned_employee', 'assigned_work', 'work_status', 'progress'], true)) {
+        if (!in_array($field, ['department', 'assigned_employee', 'assigned_work', 'work_status', 'progress', 'deadline'], true)) {
             return false;
         }
 
@@ -1165,6 +1252,23 @@ class Projects_model extends App_Model
             $value = max(0, min(100, (int) $value));
         }
 
+        // 'deadline' arrives in the app's display format (what _d() shows)
+        // and is converted with the exact same to_sql_date() call update()
+        // applies to its Deadline field - inline edits and the edit form
+        // therefore always store the same SQL date. Empty input clears
+        // the deadline.
+        if ($field === 'deadline') {
+            $value = ($value !== '' && $value !== null) ? to_sql_date($value) : null;
+        }
+
+        // Current row snapshot before this write, used by the Work Status
+        // co-sync (progress / date_finished) and the Assigned Employee
+        // membership retirement below.
+        $old = $this->db->select('status, work_status, progress, date_finished, assigned_employee')
+            ->where('id', $id)
+            ->get(db_prefix() . 'projects')
+            ->row();
+
         $data = [
             $field         => $value,
             'last_updated' => date('Y-m-d H:i:s'),
@@ -1178,6 +1282,17 @@ class Projects_model extends App_Model
             $data['assigned_employee'] = null;
         }
 
+        // Single status (see reconcile_single_status()): an inline Work
+        // Status change here also moves the core Perfex `status` column
+        // (the employee Development Portal / Dashboard widgets / native
+        // staff panel read that column) and co-syncs progress, so the
+        // Admin list and the employee panels can never disagree about a
+        // project's current state again.
+        if ($field === 'work_status') {
+            $data['work_status'] = $value;
+            $this->reconcile_single_status($data, $old);
+        }
+
         $this->db->where('id', $id);
         $this->db->update(db_prefix() . 'projects', $data);
 
@@ -1187,20 +1302,27 @@ class Projects_model extends App_Model
             log_activity('Project Assignment Updated [ID: ' . $id . ', Field: ' . $field . ']');
         }
 
-        // Root-cause fix: tblprojects.assigned_employee and tblproject_members
-        // are two independent concepts in this schema - Perfex's own
-        // permission check (Projects_model::is_member(), used by
-        // Projects::view()) and every "which staff can see this project"
-        // query (including the Development Portal's) key off
-        // tblproject_members, not this column. Setting assigned_employee
-        // here without also inserting the matching project_members row
-        // silently left the assigned staff member unable to see or open
-        // their own assigned project. Same insert shape
-        // add_edit_members() already uses for that table - not a new
-        // mechanism, and this only ever ADDS a row, never removes one
-        // (an existing member added through the native Members field is
-        // left untouched, and reassigning to someone else does not strip
-        // the previous assignee's membership).
+        // tblprojects.assigned_employee and tblproject_members are two
+        // independent concepts in this schema - Perfex's own permission
+        // check (Projects_model::is_member(), used by Projects::view())
+        // and every "which staff can see this project" query (including
+        // the Development Portal's) key off tblproject_members, not this
+        // column. Setting assigned_employee here without also inserting
+        // the matching project_members row silently left the assigned
+        // staff member unable to see or open their own assigned project.
+        // Same insert shape add_edit_members() already uses for that
+        // table - not a new mechanism. Members added through the native
+        // Members field are never touched; only the previous
+        // assigned_employee's own membership row is retired on a genuine
+        // reassignment (or department re-selection, whose cascade clears
+        // assigned_employee), so "who owns this project" has exactly one
+        // answer and the old owner's panel stops listing it.
+        $newAssignedEmployee = $field === 'assigned_employee'
+            ? $value
+            : ($field === 'department' ? null : $old->assigned_employee);
+
+        $assignmentChanged = $old->assigned_employee != '' && $old->assigned_employee != $newAssignedEmployee;
+
         if ($field === 'assigned_employee' && !empty($value)) {
             $this->db->where('project_id', $id);
             $this->db->where('staff_id', $value);
@@ -1218,20 +1340,41 @@ class Projects_model extends App_Model
             }
         }
 
+        if ($assignmentChanged && in_array($field, ['assigned_employee', 'department'], true)) {
+            $this->db->where('project_id', $id);
+            $this->db->where('staff_id', $old->assigned_employee);
+            $this->db->delete(db_prefix() . 'project_members');
+        }
+
         return $updated;
     }
 
     public function mark_as($data)
     {
-        $this->db->select('status');
+        $this->db->select('status, work_status, progress, date_finished');
         $this->db->where('id', $data['project_id']);
-        $old_status = $this->db->get(db_prefix() . 'projects')->row()->status;
+        $old = $this->db->get(db_prefix() . 'projects')->row();
 
-        $this->db->where('id', $data['project_id']);
-        $this->db->update(db_prefix() . 'projects', [
+        $old_status = $old->status;
+
+        // Single status (see reconcile_single_status()): a core status
+        // change also updates the Work Status the Admin and Customer
+        // lists display, plus the shared Work Status -> Progress rule - so
+        // the employee Development Portal marking a project In Progress
+        // instantly shows 'In Progress' on the Admin list and the Customer
+        // Portal, and the stored progress column stays in sync for
+        // consumers that read it directly. Only applied when the effective
+        // status genuinely changes, so re-saving the same status never
+        // clobbers a manually-set progress value.
+        $new = [
             'status'       => $data['status_id'],
             'last_updated' => date('Y-m-d H:i:s'),
-        ]);
+        ];
+
+        $this->reconcile_single_status($new, $old);
+
+        $this->db->where('id', $data['project_id']);
+        $this->db->update(db_prefix() . 'projects', $new);
         if ($this->db->affected_rows() > 0) {
             hooks()->do_action('project_status_changed', [
                 'status'     => $data['status_id'],
