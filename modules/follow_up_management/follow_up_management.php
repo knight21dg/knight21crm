@@ -578,29 +578,27 @@ function follow_up_management_reports_menu_item()
 }
 
 /**
- * "My Follow-ups Due" dashboard widget - mirrors modules/goals/goals.php's
- * registration call exactly. Telecaller-only (same three-tier guard as
- * follow_up_management_hide_project_widgets_script() below): Admin no
- * longer performs day-to-day follow-up work from the native Dashboard, so
- * this personal queue card has no reason to register there. This is a
- * role-gated no-op, not a deletion - the widget file, its language
- * strings, and this registration function all stay intact so nothing
- * needs re-adding if a future role also needs this card.
+ * "My Follow-ups Due" dashboard widget - retained as a permanent no-op.
+ *
+ * This card used to register modules/follow_up_management/views/widget.php
+ * ("My Today's Follow-ups", right-4 column) for plain Telecallers. It is
+ * superseded by follow_up_management_add_todays_followups_widget() below:
+ * that widget renders the same personal queue (Overdue + Due Today, via
+ * Follow_ups_model::get_todays_followups_grouped()) in the main left-8
+ * column above the calendar, making a second right-sidebar copy redundant.
+ *
+ * Per this module's convention this is a no-op, not a deletion - the
+ * widget file itself, its language strings, and this registration function
+ * all stay intact so nothing needs re-adding if a future role should need
+ * the standalone right-sidebar card again. The filter hook
+ * (get_dashboard_widgets) remains registered; returning $widgets unchanged
+ * simply means no widget entry is ever appended.
  *
  * @param  array $widgets
  * @return array
  */
 function follow_up_management_add_dashboard_widget($widgets)
 {
-    if (!is_staff_member() || is_admin() || staff_can('view_department', 'follow_up_management') || !follow_up_management_is_telecalling_department_member()) {
-        return $widgets;
-    }
-
-    $widgets[] = [
-        'path'      => 'follow_up_management/widget',
-        'container' => 'right-4',
-    ];
-
     return $widgets;
 }
 

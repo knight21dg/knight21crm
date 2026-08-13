@@ -12,14 +12,20 @@
  * therefore the same get_followup_case_visibility_where() Admin/Manager/
  * Telecaller scope) the full "Today's Follow-ups" page already uses for its
  * "Due Today" section - a plain Telecaller only ever sees their own
- * assigned follow-ups. Row-level display reuses the module's existing
- * label helpers (priority/status/type) and the existing "Due Today"/"Overdue"
- * badge styling (format_followup_next_date_badge()'s own label classes).
+ * assigned follow-ups. Overdue + Due Today are merged into one queue (each
+ * group already sorted by Next Follow-up Date ascending, so the most
+ * overdue rows lead), with the existing per-row badge logic marking rows
+ * whose Next Follow-up Date has already passed as "Overdue" - a past-dated
+ * follow-up is therefore visible on the Dashboard immediately instead of
+ * only on the full page's Overdue section. Row-level display reuses the
+ * module's existing label helpers (priority/status/type) and the existing
+ * "Due Today"/"Overdue" badge styling (format_followup_next_date_badge()'s
+ * own label classes).
  */
 $CI = &get_instance();
 $CI->load->model('follow_up_management/follow_ups_model');
 $groups = $CI->follow_ups_model->get_todays_followups_grouped();
-$cases  = $groups['due_today'];
+$cases  = array_merge($groups['overdue'], $groups['due_today']);
 $now    = date('Y-m-d H:i:s');
 ?>
 <div class="widget" id="widget-dashboard_todays_followups" data-name="<?= _l('todays_followups'); ?>">
