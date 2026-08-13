@@ -203,12 +203,16 @@ hooks()->add_filter('sidebar_menu_items', 'follow_up_management_redirect_tasks_s
 // stays fully reachable by direct URL and fully functional for whoever
 // can still see its menu link (Admin/Manager).
 //
-// Hides 'projects' and 'support' - core sidebar items
-// (application/helpers/menu_helper.php), neither part of the Telecaller
+// Hides 'projects', 'support' and 'utilities' - core sidebar items
+// (application/helpers/menu_helper.php), none part of the Telecaller
 // workflow. Their controllers/routes are completely untouched - Support
 // tickets stay fully reachable by direct URL for anyone who still needs
-// them (e.g. a lead's ticket history opened from elsewhere), and every
-// other role's own Support menu link is unaffected.
+// them (e.g. a lead's ticket history opened from elsewhere), the
+// Utilities pages (Media/Calendar/Bulk PDF/Activity Log/Pipe Log) stay
+// functional and directly reachable for every role that can see the
+// menu link (Admin/Manager), and every other role's own menu links are
+// unaffected. The dashboard's calendar widget is not touched at all -
+// only this sidebar link disappears for a plain Telecaller.
 //
 // 'customers' is intentionally NOT hidden (reversed from an earlier phase's
 // decision): the Lead Management workflow (this module's Customer Ready
@@ -222,8 +226,9 @@ hooks()->add_filter('sidebar_menu_items', 'follow_up_management_redirect_tasks_s
 // 'follow_up_management' (the whole top-level group) IS hidden here for
 // a plain Telecaller - finalized navigation: this role should have no
 // "Follow-up Management" parent at all, only flat top-level items
-// (Dashboard/Leads/My Follow-ups/Follow-up History/Utilities). 'support'
-// is likewise hidden - not part of a Telecaller's workflow, Admin-oriented.
+// (Dashboard/Leads/My Follow-ups/Follow-up History). 'support' and
+// 'utilities' are likewise hidden - neither part of a Telecaller's
+// workflow, Admin-oriented.
 // My Follow-ups stays reachable via the 'tasks' slot redirect above;
 // Follow-up History is injected below as its own synthetic top-level
 // item (application/views/admin/tables/all_follow_ups.php/its own view
@@ -241,6 +246,7 @@ function follow_up_management_hide_menus_for_telecaller($items)
     unset($items['projects']);
     unset($items['follow_up_management']);
     unset($items['support']);
+    unset($items['utilities']);
 
     // Synthetic top-level item - not registered via
     // add_sidebar_menu_item() (that would show for every role; this

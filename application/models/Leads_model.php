@@ -895,6 +895,19 @@ class Leads_model extends App_Model
     {
         $staff_id = $staff_id == '' ? get_staff_user_id() : $staff_id;
 
+        // Knight21: a plain Telecaller only ever accesses their OWN assigned
+        // leads, even though the role carries the broad native 'view' leads
+        // permission - so the view-permission early-return below must not
+        // apply to them. Every endpoint gated on this method (lead detail,
+        // edit, mark_as_lost/junk, activity log, notes, attachments,
+        // reminders, convert data) becomes Telecaller-scoped through this
+        // single point.
+        if (function_exists('follow_up_management_is_plain_telecaller') && follow_up_management_is_plain_telecaller($staff_id)) {
+            $CI = &get_instance();
+
+            return total_rows(db_prefix() . 'leads', 'id="' . $CI->db->escape_str($id) . '" AND assigned=' . (int) $staff_id) > 0;
+        }
+
         if (has_permission('leads', $staff_id, 'view')) {
             return true;
         }

@@ -96,6 +96,15 @@ function get_leads_summary()
     $sql                   = '';
     $whereNoViewPermission = '(addedfrom = ' . get_staff_user_id() . ' OR assigned=' . get_staff_user_id() . ' OR is_public = 1)';
 
+    // Knight21: plain Telecallers must not see Admin-level totals - the
+    // status cards, lost-leads count and total only count the leads
+    // assigned to the logged-in Telecaller, even though the role carries
+    // the broad native 'view' leads permission.
+    if (function_exists('follow_up_management_is_plain_telecaller') && follow_up_management_is_plain_telecaller()) {
+        $has_permission_view   = false;
+        $whereNoViewPermission = 'assigned=' . (int) get_staff_user_id();
+    }
+
     $statuses[] = [
         'lost'  => true,
         'name'  => _l('lost_leads'),

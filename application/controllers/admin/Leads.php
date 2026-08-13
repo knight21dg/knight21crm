@@ -132,7 +132,17 @@ class Leads extends AdminController
         $data['base_currency'] = get_base_currency();
 
         if (is_numeric($id)) {
-            $leadWhere = (staff_can('view',  'leads') ? [] : '(assigned = ' . get_staff_user_id() . ' OR addedfrom=' . get_staff_user_id() . ' OR is_public=1)');
+            // Knight21: plain Telecallers may only open leads assigned to
+            // them - scoping the lookup query itself (defense in depth for
+            // leads/index/{id} direct loads, in addition to the
+            // staff_can_access_lead() gate in lead()).
+            $telecallerLeadsScope = function_exists('follow_up_management_get_telecaller_leads_scope_where')
+                ? follow_up_management_get_telecaller_leads_scope_where()
+                : '';
+
+            $leadWhere = $telecallerLeadsScope
+                ? substr($telecallerLeadsScope, 4) // strip the leading "AND "
+                : (staff_can('view', 'leads') ? [] : '(assigned = ' . get_staff_user_id() . ' OR addedfrom=' . get_staff_user_id() . ' OR is_public=1)');
 
             $lead = $this->leads_model->get($id, $leadWhere);
 
@@ -241,6 +251,15 @@ class Leads extends AdminController
         }
 
         if (staff_cant('delete', 'leads')) {
+            access_denied('Delete Lead');
+        }
+
+        // Knight21: the Telecaller role also carries the native 'delete'
+        // leads permission, so ownership must be checked here too - a plain
+        // Telecaller may only delete their own assigned leads, even via a
+        // crafted admin_url('leads/delete/{id}') direct URL.
+        if (function_exists('follow_up_management_is_plain_telecaller') && follow_up_management_is_plain_telecaller()
+            && !$this->leads_model->staff_can_access_lead($id)) {
             access_denied('Delete Lead');
         }
 
@@ -377,6 +396,17 @@ class Leads extends AdminController
         }
 
         if ($this->input->post()) {
+            // Knight21: plain Telecallers may only convert their own
+            // assigned leads (get_convert_data was already gated through
+            // staff_can_access_lead(), but the POST endpoint itself had no
+            // per-lead check).
+            $posted_lead_id = $this->input->post('leadid');
+
+            if (function_exists('follow_up_management_is_plain_telecaller') && follow_up_management_is_plain_telecaller()
+                && ($posted_lead_id === null || !$this->leads_model->staff_can_access_lead($posted_lead_id))) {
+                access_denied('Lead Convert to Customer');
+            }
+
             $default_country  = get_option('customer_default_country');
             $data             = $this->input->post();
             $data['password'] = $this->input->post('password', false);
@@ -443,6 +473,17 @@ class Leads extends AdminController
     public function update_lead_status()
     {
         if ($this->input->post() && $this->input->is_ajax_request()) {
+            // Knight21: plain Telecallers may only change the status of
+            // their own assigned leads - the table/kanban status dropdown
+            // had no per-lead access check at all.
+            if (function_exists('follow_up_management_is_plain_telecaller') && follow_up_management_is_plain_telecaller()) {
+                $lead_id = $this->input->post('leadid');
+
+                if ($lead_id === null || !$this->leads_model->staff_can_access_lead($lead_id)) {
+                    ajax_access_denied();
+                }
+            }
+
             $this->leads_model->update_lead_status($this->input->post());
         }
     }
@@ -1109,6 +1150,23 @@ class Leads extends AdminController
             $last_contact          = $this->input->post('last_contact');
             $lost                  = $this->input->post('lost');
             $has_permission_delete = staff_can('delete',  'leads');
+
+            // Knight21: a plain Telecaller's bulk actions are restricted to
+            // their own assigned leads at the query level - ids belonging to
+            // other staff (forced via crafted requests) are dropped before
+            // the loop, so mass_delete/status/source/assigned/visibility/
+            // tags/lost updates can never touch another staff's leads.
+            if (is_array($ids) && function_exists('follow_up_management_is_plain_telecaller') && follow_up_management_is_plain_telecaller()) {
+                $ids = array_map('intval', $ids);
+
+                if (!empty($ids)) {
+                    $this->db->select('id');
+                    $this->db->where_in('id', $ids);
+                    $this->db->where('assigned', get_staff_user_id());
+                    $ids = array_map('intval', array_column($this->db->get(db_prefix() . 'leads')->result_array(), 'id'));
+                }
+            }
+
             if (is_array($ids)) {
                 foreach ($ids as $id) {
                     if ($this->input->post('mass_delete')) {

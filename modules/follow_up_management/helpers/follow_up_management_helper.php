@@ -81,6 +81,61 @@ function follow_up_management_can_access_telecaller_pages($staff_id = null)
 }
 
 /**
+ * Narrow "plain Telecaller" predicate: a logged-in staff member who is a
+ * real "Telecalling" business-department member AND holds no Admin or
+ * Manager ('view_department') bypass. Composed from the same three checks
+ * the module already uses everywhere else - never a new mechanism.
+ *
+ * This is the gate shared by every Knight21 leads-scoping change in the
+ * CORE modules. The core /admin/leads page can't be constrained with the
+ * existing visibility fragments (get_followup_lead_visibility_where()
+ * etc.) because those also restrict Manager-capability holders, and the
+ * native leads page must preserve the current behavior of every role
+ * except plain Telecallers. Admin and Manager therefore take the exact
+ * query path they take today; only plain Telecallers get `assigned = me`
+ * appended at the SQL level.
+ *
+ * @param  mixed $staff_id defaults to the current staff member
+ * @return bool
+ */
+function follow_up_management_is_plain_telecaller($staff_id = null)
+{
+    if (!is_staff_member()) {
+        return false;
+    }
+
+    $staff_id = $staff_id ?: get_staff_user_id();
+
+    return !is_admin($staff_id)
+        && !staff_can('view_department', 'follow_up_management', $staff_id)
+        && follow_up_management_is_telecalling_department_member($staff_id);
+}
+
+/**
+ * Raw SQL "AND tblleads.assigned = X" fragment for a plain Telecaller,
+ * '' for everyone else - the single where-fragment all core leads data
+ * surfaces append so a plain Telecaller only ever sees (list, search,
+ * pagination, filters, counts, kanban, detail modal) leads assigned to
+ * the logged-in Telecaller, regardless of what broad native 'view' leads
+ * permission their role happens to carry. Same string-array style
+ * data_tables_init() already uses ($where[] = 'AND ...'), fully guarded
+ * for call sites outside this module via function_exists().
+ *
+ * @param  string|null $table_alias defaults to db_prefix().'leads'
+ * @return string
+ */
+function follow_up_management_get_telecaller_leads_scope_where($table_alias = null)
+{
+    if (!follow_up_management_is_plain_telecaller()) {
+        return '';
+    }
+
+    $prefix = $table_alias ? $table_alias . '.' : db_prefix() . 'leads.';
+
+    return 'AND ' . $prefix . 'assigned = ' . (int) get_staff_user_id();
+}
+
+/**
  * Central Admin/Manager/Telecaller case-visibility rule, as a raw SQL WHERE
  * fragment in the exact same string-array style data_tables_init() already
  * uses ($where[] = 'AND ...') - so this drops directly into the My Cases

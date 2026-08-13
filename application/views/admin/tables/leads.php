@@ -135,7 +135,18 @@ return App_table::find('leads')
             $where[] = $filtersWhere;
         }
 
-        if (staff_cant('view', 'leads')) {
+        // Knight21: plain Telecallers see only their own assigned leads,
+        // no matter how broad the native 'view' leads permission their role
+        // carries - this $where is applied by data_tables_init to every
+        // query (search, pagination, filters, filtered/total counts), so
+        // the whole table surface is scoped at the SQL level.
+        $telecallerLeadsScope = function_exists('follow_up_management_get_telecaller_leads_scope_where')
+            ? follow_up_management_get_telecaller_leads_scope_where()
+            : '';
+
+        if ($telecallerLeadsScope) {
+            array_push($where, $telecallerLeadsScope);
+        } elseif (staff_cant('view', 'leads')) {
             array_push($where, 'AND (addedfrom = ' . get_staff_user_id() . ' OR is_public = 1)');
         }
 

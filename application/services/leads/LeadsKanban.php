@@ -50,7 +50,18 @@ class LeadsKanban extends AbstractKanban
         $this->ci->db->join(db_prefix() . 'staff', db_prefix() . 'staff.staffid=' . db_prefix() . 'leads.assigned', 'left');
         $this->ci->db->where('status', $this->status);
 
-        if (staff_cant('view', 'leads')) {
+        // Knight21: plain Telecallers see only their own assigned leads on
+        // the kanban as well, no matter how broad the native 'view' leads
+        // permission their role carries (mirror of the leads DataTable
+        // scoping), so kanban initial render + load-more/search/pagination
+        // stay scoped at the SQL level.
+        $telecallerLeadsScope = function_exists('follow_up_management_get_telecaller_leads_scope_where')
+            ? follow_up_management_get_telecaller_leads_scope_where()
+            : '';
+
+        if ($telecallerLeadsScope) {
+            $this->ci->db->where(trim($telecallerLeadsScope));
+        } elseif (staff_cant('view', 'leads')) {
             $this->ci->db->where('(assigned = ' . get_staff_user_id() . ' OR addedfrom=' . get_staff_user_id() . ' OR is_public=1)');
         }
 
