@@ -202,72 +202,99 @@ echo render_select('country', $countries, ['country_id', ['short_name']], 'clien
 ?>
                         <hr />
                         <?php
-                        // Department dropdown - loads real Business Departments
-                        // (modules/business_departments), replacing the old
-                        // hardcoded get_service_departments().
-                        $department_options = get_business_departments();
-                        $selected_department = (isset($client) ? $client->department : '');
-                        echo render_select('department', $department_options, ['id', 'name'], 'client_department', $selected_department, ['required' => 'required']);
-                        ?>
+                        // Project-assignment fields (Department / Assigned
+                        // Employee / Assigned Work / Work Status / Due Date /
+                        // Progress) - DISPLAY ONLY on the Customer page.
+                        // The Project is the single source of truth for these
+                        // values; they are edited from the Project page
+                        // (Admin -> Projects, Customer Portal -> Open Project,
+                        // Staff/Development Portal) only. $client is already
+                        // bound to the effective project values by
+                        // Clients::client() (get_latest_project_assignment_fields()).
+                        $assignmentId   = (isset($client) ? $client->userid : '');
+                        $assignmentDept = (isset($client) ? $client->department : '');
 
-                        <?php
-                        // Assigned Employee - only staff mapped to the selected
-                        // Business Department (get_business_department_staff()),
-                        // replacing the old hardcoded get_department_employees().
-                        $selected_employee    = (isset($client) ? $client->employee_name : '');
-                        $employee_options     = $selected_department != '' ? get_business_department_staff($selected_department) : [];
-                        $employee_select_attrs = ['required' => 'required'];
-                        if ($selected_department == '') {
-                            $employee_select_attrs['disabled'] = 'disabled';
-                        }
-                        echo render_select('employee_name', $employee_options, ['staffid', 'name'], 'client_employee', $selected_employee, $employee_select_attrs);
-                        ?>
-
-                        <?php
-                        $selected_assigned_work = (isset($client) ? $client->assigned_work : '');
-                        echo render_textarea('assigned_work', 'client_assigned_work', $selected_assigned_work, ['rows' => 6, 'required' => 'required']);
-                        ?>
-
-                        <?php
-                        $work_statuses = get_work_statuses();
-                        $work_status_options = [];
-                        foreach ($work_statuses as $wstatus) {
-                            $work_status_options[] = ['id' => $wstatus, 'name' => $wstatus];
-                        }
-                        $selected_work_status = (isset($client) ? $client->work_status : '');
-                        echo render_select('work_status', $work_status_options, ['id', 'name'], 'client_work_status', $selected_work_status, ['required' => 'required']);
-                        ?>
-
-                        <?php
-                        $selected_due_date = (isset($client) && $client->due_date ? _d($client->due_date) : '');
-                        echo render_date_input('due_date', 'client_due_date', $selected_due_date, ['required' => 'required']);
-                        ?>
-
-                        <?php
-                        $progress_options = [];
-                        foreach (get_progress_options() as $progress_value) {
-                            $progress_options[] = ['id' => $progress_value, 'name' => $progress_value . '%'];
-                        }
-                        $selected_progress = (isset($client) ? $client->progress : 0);
-
-                        // The Work Status -> Progress auto-rule
-                        // (Clients_model::resolve_progress_for_work_status(),
-                        // "In Progress" -> 25) can set Progress to a value
-                        // outside get_progress_options()'s fixed 10% steps.
-                        // Add it in here (Customer edit page only - the
-                        // shared get_progress_options() helper is also used
-                        // by Projects, which this doesn't concern) so the
-                        // dropdown can still display/re-select it instead
-                        // of showing blank on a required field.
-                        if (!in_array((int) $selected_progress, get_progress_options(), true)) {
-                            $progress_options[] = ['id' => (int) $selected_progress, 'name' => (int) $selected_progress . '%'];
-                            usort($progress_options, function ($a, $b) {
-                                return $a['id'] <=> $b['id'];
-                            });
+                        $departmentName = '';
+                        foreach (get_business_departments() as $departmentOption) {
+                            if ($departmentOption['id'] == $assignmentDept) {
+                                $departmentName = $departmentOption['name'];
+                                break;
+                            }
                         }
 
-                        echo render_select('progress', $progress_options, ['id', 'name'], 'client_progress', $selected_progress, ['required' => 'required']);
+                        $assignmentEmployee = (isset($client) ? $client->employee_name : '');
+                        $employeeName       = $assignmentEmployee != '' ? get_staff_full_name($assignmentEmployee) : '';
+
+                        $assignmentWork     = (isset($client) ? $client->assigned_work : '');
+                        $assignmentStatus   = (isset($client) ? $client->work_status : '');
+                        $assignmentDue      = (isset($client) && $client->due_date ? $client->due_date : '');
+                        $assignmentProgress = (int) (isset($client) ? $client->progress : 0);
+
+                        $statusLabelStyle = '';
+                        if ($assignmentStatus) {
+                            $statusColor      = get_work_status_color($assignmentStatus);
+                            $statusLabelStyle = ' style="color:' . $statusColor . ';border:1px solid ' . adjust_hex_brightness($statusColor, 0.4) . ';background: ' . adjust_hex_brightness($statusColor, 0.04) . ';"';
+                        }
+
+                        $progressColor = get_progress_bar_color($assignmentProgress);
+
+                        // Work Status -> Progress rule applied for display
+                        // only, exactly like the Customers list does.
+                        $assignmentProgress = resolve_client_progress_for_status($assignmentStatus, $assignmentProgress);
+
+                        $hasAssignment = isset($client) && ($departmentName != '' || $employeeName != '' || $assignmentWork != '' || $assignmentStatus != '' || $assignmentDue != '' || $assignmentProgress > 0);
                         ?>
+
+                        <?php if (!isset($client) || !$hasAssignment) { ?>
+                        <div class="form-group">
+                            <label class="control-label"><?= _l('client_assignment_display'); ?></label>
+                            <p class="text-muted"><?= _l('client_no_project_assigned_yet'); ?></p>
+                        </div>
+                        <?php } else { ?>
+                        <div class="form-group">
+                            <label class="control-label"><?= _l('client_department'); ?></label>
+                            <div>
+                                <?= $departmentName != '' ? '<span class="label label-default">' . e($departmentName) . '</span>' : '<span class="text-muted">-</span>'; ?>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="control-label"><?= _l('client_employee'); ?></label>
+                            <div>
+                                <?= $employeeName != '' ? '<span class="label label-info">' . e($employeeName) . '</span>' : '<span class="text-muted">-</span>'; ?>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="control-label"><?= _l('client_assigned_work'); ?></label>
+                            <div>
+                                <?= $assignmentWork != '' ? '<span class="text-has-action" data-toggle="tooltip" data-title="' . e($assignmentWork) . '">' . nl2br(e($assignmentWork)) . '</span>' : '<span class="text-muted">-</span>'; ?>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="control-label"><?= _l('client_work_status'); ?></label>
+                            <div>
+                                <?= $assignmentStatus != '' ? '<span class="label"' . $statusLabelStyle . '>' . e($assignmentStatus) . '</span>' : '<span class="text-muted">-</span>'; ?>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="control-label"><?= _l('client_due_date'); ?></label>
+                            <div>
+                                <?= $assignmentDue != '' ? e(date('d-M-Y', strtotime($assignmentDue))) : '<span class="text-muted">-</span>'; ?>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="control-label"><?= _l('client_progress'); ?></label>
+                            <div class="progress progress-bar-mini" style="min-width:200px;margin-bottom:0;">
+                                <div class="progress-bar" role="progressbar" aria-valuenow="<?= $assignmentProgress; ?>" aria-valuemin="0" aria-valuemax="100" data-percent="<?= $assignmentProgress; ?>" style="width: <?= $assignmentProgress; ?>%;background-color:<?= $progressColor; ?>;"><?= $assignmentProgress; ?>%</div>
+                            </div>
+                        </div>
+                        <?php } ?>
+
+                        <p class="text-muted mtop5"><?= _l('client_assignment_managed_in_project'); ?></p>
 
                         <?php if (isset($client)) { ?>
                         <div class="form-group">
@@ -279,9 +306,6 @@ echo render_select('country', $countries, ['country_id', ['short_name']], 'clien
                         <?php } ?>
                     </div>
                 </div>
-                <script>
-                    var departmentEmployeeMap = <?= json_encode(get_business_department_staff_map()); ?>;
-                </script>
             </div>
             <?php if (isset($client)) { ?>
             <div role="tabpanel" class="tab-pane" id="customer_admins">

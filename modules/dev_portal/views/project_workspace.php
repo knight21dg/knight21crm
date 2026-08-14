@@ -34,6 +34,17 @@
 
                         <div class="row">
                             <div class="col-md-3 col-sm-6 tw-mb-3">
+                                <label class="text-muted"><?= _l('dev_portal_workspace_assigned_employee'); ?></label>
+                                <div><?= $project->assigned_employee ? e(get_staff_full_name($project->assigned_employee)) : '-'; ?></div>
+                            </div>
+                            <div class="col-md-3 col-sm-6 tw-mb-3">
+                                <label class="text-muted"><?= _l('dev_portal_workspace_assigned_work'); ?></label>
+                                <div><?= $project->assigned_work != '' ? e($project->assigned_work) : '-'; ?></div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-3 col-sm-6 tw-mb-3">
                                 <label class="text-muted"><?= _l('dev_portal_column_status'); ?></label>
                                 <div>
                                     <span id="workspace-status-badge" class="label label-info"><?= e($status_label); ?></span>
@@ -42,7 +53,7 @@
                             <div class="col-md-9 tw-mb-3">
                                 <label class="text-muted"><?= _l('dev_portal_workspace_progress'); ?></label>
                                 <div class="progress" style="margin-bottom:5px;">
-                                    <div id="workspace-progress-bar" class="progress-bar" role="progressbar" data-percent="<?= (int) $project->progress; ?>" aria-valuenow="<?= (int) $project->progress; ?>" aria-valuemin="0" aria-valuemax="100" style="width:<?= (int) $project->progress; ?>%;"><?= (int) $project->progress; ?>%</div>
+                                    <div id="workspace-progress-bar" class="progress-bar" role="progressbar" data-percent="<?= (int) $effective_progress; ?>" aria-valuenow="<?= (int) $effective_progress; ?>" aria-valuemin="0" aria-valuemax="100" style="width:<?= (int) $effective_progress; ?>%;"><?= (int) $effective_progress; ?>%</div>
                                 </div>
                             </div>
                         </div>
@@ -56,7 +67,7 @@
                                 <div class="tw-flex tw-gap-2">
                                     <select id="workspace-progress-select" class="form-control">
                                         <?php foreach (get_progress_options() as $option) { ?>
-                                        <option value="<?= (int) $option; ?>" <?= (int) $project->progress === (int) $option ? 'selected' : ''; ?>><?= (int) $option; ?>%</option>
+                                        <option value="<?= (int) $option; ?>" <?= (int) $effective_progress === (int) $option ? 'selected' : ''; ?>><?= (int) $option; ?>%</option>
                                         <?php } ?>
                                     </select>
                                     <button type="button" class="btn btn-primary" onclick="workspace_update_progress();"><?= _l('save'); ?></button>
@@ -78,6 +89,39 @@
                                 <?php } ?>
                             </div>
                         </div>
+
+                        <hr class="hr-panel-separator" />
+
+                        <!-- Notes - shared with Admin (tblproject_notes) -->
+                        <h5><?= _l('dev_portal_workspace_notes'); ?></h5>
+                        <?php $latest_note = $project_notes[0] ?? null; ?>
+                        <div class="row">
+                            <div class="col-md-12 tw-mb-2">
+                                <label class="text-muted"><?= _l('dev_portal_workspace_latest_note'); ?></label>
+                                <div id="workspace-latest-note-text"><?= $latest_note ? e($latest_note['content']) : '<span class="text-muted">-</span>'; ?></div>
+                                <div class="text-muted tw-text-xs" id="workspace-latest-note-meta">
+                                    <?= $latest_note ? _l('dev_portal_workspace_note_by', e(trim($latest_note['firstname'] . ' ' . $latest_note['lastname']))) . ' &middot; ' . e(time_ago($latest_note['dateadded'])) : ''; ?>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tw-flex tw-gap-2 tw-mb-3">
+                            <textarea id="workspace-note-input" class="form-control" rows="2" placeholder="<?= _l('dev_portal_workspace_note_placeholder'); ?>"></textarea>
+                            <button type="button" class="btn btn-primary" onclick="workspace_add_note();"><?= _l('dev_portal_workspace_add_note'); ?></button>
+                        </div>
+                        <div class="text-muted tw-text-xs"><?= _l('dev_portal_workspace_note_history'); ?></div>
+                        <ul class="list-unstyled">
+                            <?php if (empty($project_notes)) { ?>
+                            <li class="text-muted"><?= _l('dev_portal_workspace_no_notes'); ?></li>
+                            <?php } else { ?>
+                            <?php foreach ($project_notes as $note) { ?>
+                            <li class="tw-mb-2">
+                                <span class="text-muted tw-text-xs"><?= e(_dt($note['dateadded'])); ?></span>
+                                <?= _l('dev_portal_workspace_note_by', e(trim($note['firstname'] . ' ' . $note['lastname']))); ?>
+                                <div><?= nl2br(e($note['content'])); ?></div>
+                            </li>
+                            <?php } ?>
+                            <?php } ?>
+                        </ul>
 
                         <hr class="hr-panel-separator" />
 
@@ -266,6 +310,24 @@
         });
 
         return false;
+    }
+
+    function workspace_add_note() {
+        var note = $.trim($('#workspace-note-input').val());
+        if (note === '') {
+            alert_float('danger', <?= json_encode(_l('dev_portal_note_enter_note')); ?>);
+            return;
+        }
+        $.post(admin_url + 'dev_portal/project_add_note/' + WORKSPACE_PROJECT_ID, {
+            note: note
+        }).done(function(response) {
+            var data = typeof response === 'string' ? JSON.parse(response) : response;
+            if (data.success) {
+                location.reload();
+            } else {
+                alert_float('danger', data.message);
+            }
+        });
     }
 
     function workspace_add_comment() {

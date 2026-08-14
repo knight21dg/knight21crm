@@ -13,7 +13,13 @@ return App_table::find('projects')
         $aColumns = [
             db_prefix() . 'projects.id as id',
             'name',
-            get_sql_select_client_company(),
+            // Raw company value only - the old get_sql_select_client_company()
+            // CASE expression returned a single value (contact name when the
+            // company was ' '), which is why the list could never show both
+            // company AND the primary contact. The renderer combines this
+            // with the primary contact below (two lines, 'Unknown' fallbacks).
+            db_prefix() . 'clients.company as company',
+            '(SELECT CONCAT(firstname, \' \', lastname) FROM ' . db_prefix() . 'contacts WHERE userid=' . db_prefix() . 'projects.clientid AND is_primary=1 LIMIT 1) as customer_contact',
             '(SELECT GROUP_CONCAT(name SEPARATOR ",") FROM ' . db_prefix() . 'taggables JOIN ' . db_prefix() . 'tags ON ' . db_prefix() . 'taggables.tag_id = ' . db_prefix() . 'tags.id WHERE rel_id = ' . db_prefix() . 'projects.id and rel_type="project" ORDER by tag_order ASC) as tags',
             db_prefix() . 'projects.start_date as start_date',
             'deadline',
@@ -119,11 +125,27 @@ return App_table::find('projects')
 
             $row[] = $name;
 
-            $companyName = customer_company_name_display($aRow['company']);
+            // Customer column - two lines: Company (first) and the primary
+            // contact name (second). Each line falls back to a muted
+            // 'Unknown' independently, so every combination renders correctly
+            // (company only / contact only / both / neither). 'Unknown' is
+            // display-only - never persisted. The hidden span carries the
+            // combined value for DataTables export, like the members column.
+            $companyDisplay  = customer_company_name_display($aRow['company']);
+            $contactDisplay  = trim((string) ($aRow['customer_contact'] ?? ''));
+            $contactDisplay  = $contactDisplay !== '' ? $contactDisplay : 'Unknown';
 
-            $row[] = $companyName === 'Unknown'
+            $companyCell = $companyDisplay === 'Unknown'
                 ? '<span class="text-muted">Unknown</span>'
-                : '<a href="' . admin_url('clients/client/' . $aRow['clientid']) . '">' . e($companyName) . '</a>';
+                : '<a href="' . admin_url('clients/client/' . $aRow['clientid']) . '">' . e($companyDisplay) . '</a>';
+
+            $contactCell = $contactDisplay === 'Unknown'
+                ? '<span class="text-muted">Unknown</span>'
+                : e($contactDisplay);
+
+            $row[] = '<div class="tw-leading-snug">' . $companyCell
+                . '<div class="text-muted tw-text-xs">' . $contactCell . '</div></div>'
+                . '<span class="hide">' . e($companyDisplay . ' - ' . $contactDisplay) . '</span>';
 
             $row[] = render_tags($aRow['tags']);
 
@@ -315,7 +337,7 @@ return App_table::find('projects')
                 ])->all();
         }),
 
-        App_table_filter::new('members', 'MultiSelectRule')->label(_l('project_members'))
+        App_table_filter::new('members', 'MultiSelectRule')->label(_l('project_team_members'))
             ->isVisible(fn () => staff_can('view', 'projects'))
             ->options(function ($ci) {
                 return collect($ci->projects_model->get_distinct_projects_members())->map(function ($staff) {

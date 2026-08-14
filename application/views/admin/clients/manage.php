@@ -395,22 +395,6 @@ $table_data = hooks()->apply_filters('customers_table_columns', $table_data);
         $('.table-clients').on('draw.dt', refresh_conversion_summary);
     });
 
-    // Shared AJAX quick-update + reload, reused by every inline-editable
-    // Customer Assignment dropdown (Department, Employee, Work Status, Progress)
-    function update_customer_field(id, field, value) {
-        $.post(admin_url + 'clients/update_assignment_field/' + id, {
-            field: field,
-            value: value
-        }).done(function() {
-            $('.table-clients').DataTable().ajax.reload(null, false);
-        });
-    }
-
-    // Mirrors the Leads Status dropdown's lead_mark_as(status_id, lead_id) naming/shape
-    function customer_mark_as(field, value, id) {
-        update_customer_field(id, field, value);
-    }
-
     function customers_bulk_action(event) {
         var r = confirm(app.lang.confirm_action_prompt);
         if (r == false) {

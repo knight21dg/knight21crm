@@ -1274,6 +1274,20 @@ class Projects_model extends App_Model
             'last_updated' => date('Y-m-d H:i:s'),
         ];
 
+        // An explicit progress write (admin list inline edit OR the
+        // Development Portal workspace) deliberately switches the project
+        // OFF task-derived progress: whoever sets a concrete percentage is
+        // declaring the manual value authoritative, and every panel
+        // resolves progress through resolve_progress_value() - leaving
+        // progress_from_tasks=1 here would keep all of them displaying the
+        // task-derived number forever (e.g. 100% for a zero-task project),
+        // silently swallowing the update. The edit form keeps its own
+        // checkbox and posts it through update() - this flag flip only
+        // applies to narrowed single-column writes.
+        if ($field === 'progress') {
+            $data['progress_from_tasks'] = 0;
+        }
+
         // Same cascade-clear as Clients_model::update_assignment_field() -
         // Assigned Employee options depend on Department
         // (get_business_department_staff()), so an existing selection must
@@ -2400,6 +2414,10 @@ class Projects_model extends App_Model
         $this->db->insert('project_notes', $insert_data);
         $insert_id = $this->db->insert_id();
 
+        if ($insert_id) {
+            $this->_refresh_latest_note_cache($project_id);
+        }
+
         return (bool) ($insert_id);
     }
 
@@ -2419,7 +2437,13 @@ class Projects_model extends App_Model
         $this->db->where('id', $note_id);
         $this->db->update('project_notes', $update_data);
 
-        return (bool) ($this->db->affected_rows() > 0);
+        if ($this->db->affected_rows() > 0) {
+            $this->_refresh_latest_note_cache($note->project_id);
+
+            return true;
+        }
+
+        return false;
     }
 
     public function delete_note($note_id)
@@ -2433,7 +2457,41 @@ class Projects_model extends App_Model
         $this->db->where('id', $note_id);
         $this->db->delete('project_notes');
 
-        return (bool) ($this->db->affected_rows() > 0);
+        if ($this->db->affected_rows() > 0) {
+            $this->_refresh_latest_note_cache($note->project_id);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Recomputes the shared "latest note" display cache on tblprojects
+     * (status_description + last_updated) from the newest row in
+     * tblproject_notes. The notes table is the only note store; this column
+     * is a derived cache the existing Admin Projects list and Customer
+     * Portal queries already read, so they never go stale while no separate
+     * second note system is introduced. Called from every note write path
+     * (save_note/update_note/delete_note).
+     *
+     * @param int $project_id
+     */
+    private function _refresh_latest_note_cache($project_id)
+    {
+        $this->db->select('content');
+        $this->db->from(db_prefix() . 'project_notes');
+        $this->db->where('project_id', $project_id);
+        $this->db->order_by('dateadded', 'desc');
+        $this->db->order_by('id', 'desc');
+        $this->db->limit(1);
+        $row = $this->db->get()->row();
+
+        $this->db->where('id', $project_id);
+        $this->db->update(db_prefix() . 'projects', [
+            'status_description' => $row ? $row->content : null,
+            'last_updated'       => date('Y-m-d H:i:s'),
+        ]);
     }
 
     public function delete($project_id)

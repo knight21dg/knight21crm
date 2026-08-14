@@ -11,8 +11,7 @@ return App_table::find('clients')
         $custom_fields = get_table_custom_fields('customers');
         $this->ci->db->query("SET sql_mode = ''");
 
-        $departments   = get_business_departments();
-        $work_statuses = get_work_statuses();
+        $departments = get_business_departments();
 
         $aColumns = [
             '1',
@@ -211,8 +210,8 @@ return App_table::find('clients')
 
             $row[] = $groupsRow;
 
-            // Department (Leads-Status-style inline-editable dropdown) - now a real
-            // Business Department id, options/labels resolved from get_business_departments()
+            // Department (display only - project assignment is edited from
+            // the Project page, never from the Customer page)
             $currentDepartmentId = $aRow['effective_department'];
             $currentDepartmentName = '';
             foreach ($departments as $departmentOption) {
@@ -221,38 +220,13 @@ return App_table::find('clients')
                     break;
                 }
             }
-            $deptToggleLabel   = $currentDepartmentName != '' ? e($currentDepartmentName) : _l('dropdown_non_selected_tex');
-            $outputDepartment  = '<div class="dropdown inline-block">';
-            $outputDepartment .= '<a href="#" class="dropdown-toggle label label-default" id="tableCustomerDepartment-' . $aRow['userid'] . '" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">' . $deptToggleLabel . '<i class="chevron"></i></a>';
-            $outputDepartment .= '<ul class="dropdown-menu dropdown-menu-right" aria-labelledby="tableCustomerDepartment-' . $aRow['userid'] . '">';
-            foreach ($departments as $departmentOption) {
-                if ($currentDepartmentId != $departmentOption['id']) {
-                    $outputDepartment .= '<li><a href="#" onclick="customer_mark_as(\'department\',\'' . e($departmentOption['id']) . '\',' . $aRow['userid'] . '); return false;">' . e($departmentOption['name']) . '</a></li>';
-                }
-            }
-            $outputDepartment .= '</ul></div>';
-            $row[] = $outputDepartment;
+            $row[] = $currentDepartmentName != '' ? '<span class="label label-default">' . e($currentDepartmentName) . '</span>' : '<span class="text-muted">-</span>';
 
-            // Employee (dependent on Department; Leads-Status-style dropdown) - now a real
-            // staff_id, options come from get_business_department_staff() (real tblstaff records)
+            // Employee (display only - project assignment is edited from
+            // the Project page, never from the Customer page)
             $currentEmployeeId = $aRow['effective_employee'];
-            if (empty($currentDepartmentId)) {
-                $row[] = '<span class="text-muted">-</span>';
-            } else {
-                $employeeOptions   = get_business_department_staff($currentDepartmentId);
-                $currentEmployeeName = $currentEmployeeId != '' ? get_staff_full_name($currentEmployeeId) : '';
-                $empToggleLabel    = $currentEmployeeName != '' ? e($currentEmployeeName) : _l('dropdown_non_selected_tex');
-                $outputEmployee    = '<div class="dropdown inline-block">';
-                $outputEmployee .= '<a href="#" class="dropdown-toggle label label-default" id="tableCustomerEmployee-' . $aRow['userid'] . '" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">' . $empToggleLabel . '<i class="chevron"></i></a>';
-                $outputEmployee .= '<ul class="dropdown-menu dropdown-menu-right" aria-labelledby="tableCustomerEmployee-' . $aRow['userid'] . '">';
-                foreach ($employeeOptions as $employeeOption) {
-                    if ($currentEmployeeId != $employeeOption['staffid']) {
-                        $outputEmployee .= '<li><a href="#" onclick="customer_mark_as(\'employee_name\',\'' . e($employeeOption['staffid']) . '\',' . $aRow['userid'] . '); return false;">' . e($employeeOption['name']) . '</a></li>';
-                    }
-                }
-                $outputEmployee .= '</ul></div>';
-                $row[] = $outputEmployee;
-            }
+            $currentEmployeeName = $currentEmployeeId != '' ? get_staff_full_name($currentEmployeeId) : '';
+            $row[] = $currentEmployeeName != '' ? '<span class="label label-info">' . e($currentEmployeeName) . '</span>' : '<span class="text-muted">-</span>';
 
             // Converted From - which DEPARTMENT/workflow generated this
             // customer (no Lead -> Admin; Lead ever handed to a confirmed
@@ -279,24 +253,17 @@ return App_table::find('clients')
             // Assigned Work (read-only, truncated + full text on tooltip)
             $row[] = $aRow['effective_assigned_work'] ? '<span data-toggle="tooltip" data-title="' . e($aRow['effective_assigned_work']) . '">' . e(mb_strimwidth($aRow['effective_assigned_work'], 0, 50, '...')) . '</span>' : '';
 
-            // Work Status (exact Leads-Status dropdown + colors)
+            // Work Status (display only - project assignment is edited from
+            // the Project page, never from the Customer page). Keeps the
+            // color coding, but renders as a plain label, not a dropdown.
             $currentWorkStatus = $aRow['effective_work_status'];
-            $statusToggleLabel = $currentWorkStatus ? e($currentWorkStatus) : _l('client_work_status_not_started');
-            $statusToggleStyle = '';
+            $statusLabelText   = $currentWorkStatus ? e($currentWorkStatus) : _l('client_work_status_not_started');
+            $statusLabelStyle  = '';
             if ($currentWorkStatus) {
-                $statusColor       = get_work_status_color($currentWorkStatus);
-                $statusToggleStyle = ' style="color:' . $statusColor . ';border:1px solid ' . adjust_hex_brightness($statusColor, 0.4) . ';background: ' . adjust_hex_brightness($statusColor, 0.04) . ';"';
+                $statusColor      = get_work_status_color($currentWorkStatus);
+                $statusLabelStyle = ' style="color:' . $statusColor . ';border:1px solid ' . adjust_hex_brightness($statusColor, 0.4) . ';background: ' . adjust_hex_brightness($statusColor, 0.04) . ';"';
             }
-            $outputWorkStatus  = '<div class="dropdown inline-block">';
-            $outputWorkStatus .= '<a href="#" class="dropdown-toggle label' . ($currentWorkStatus ? '' : ' label-default') . '" id="tableCustomerWorkStatus-' . $aRow['userid'] . '" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"' . $statusToggleStyle . '>' . $statusToggleLabel . '<i class="chevron"></i></a>';
-            $outputWorkStatus .= '<ul class="dropdown-menu dropdown-menu-right" aria-labelledby="tableCustomerWorkStatus-' . $aRow['userid'] . '">';
-            foreach ($work_statuses as $statusOption) {
-                if ($currentWorkStatus != $statusOption) {
-                    $outputWorkStatus .= '<li><a href="#" onclick="customer_mark_as(\'work_status\',\'' . e($statusOption) . '\',' . $aRow['userid'] . '); return false;">' . e($statusOption) . '</a></li>';
-                }
-            }
-            $outputWorkStatus .= '</ul></div>';
-            $row[] = $outputWorkStatus;
+            $row[] = '<span class="label' . ($currentWorkStatus ? '' : ' label-default') . '"' . $statusLabelStyle . '>' . $statusLabelText . '</span>';
 
             // Due Date (d-M-Y, color-coded)
             $dueDateClass = get_due_date_class($aRow['effective_due_date'], $aRow['effective_work_status']);

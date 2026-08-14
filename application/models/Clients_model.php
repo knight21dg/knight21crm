@@ -262,43 +262,6 @@ class Clients_model extends App_Model
             $updated = true;
         }
 
-        // Single source of truth (mirror): when the Customer Edit page
-        // saves work fields (department / employee_name / assigned_work /
-        // work_status / due_date / progress) and the customer has a
-        // project, the same values are written onto that project record
-        // too - the Customers list, the Admin Projects list and the
-        // employee panels all display the project values for such
-        // customers, so the edit page and the inline editors must agree
-        // with them. Per-field update_assignment_field() is used (not
-        // full update()) so this never touches project_settings or any
-        // other project-only field. Department is mirrored first so the
-        // project's assigned-employee cascade clears/reselects correctly.
-        $workFields        = ['department', 'employee_name', 'assigned_work', 'work_status', 'due_date', 'progress'];
-        $postedWorkFields  = array_values(array_intersect($workFields, array_keys($data)));
-
-        if ($postedWorkFields) {
-            $project = $this->db->select('id')
-                ->where('clientid', $id)
-                ->order_by('id', 'DESC')
-                ->limit(1)
-                ->get(db_prefix() . 'projects')
-                ->row();
-
-            if ($project) {
-                $CI = &get_instance();
-                $CI->load->model('projects_model');
-
-                $fieldMap = [
-                    'employee_name' => 'assigned_employee',
-                    'due_date'      => 'deadline',
-                ];
-
-                foreach ($postedWorkFields as $wf) {
-                    $CI->projects_model->update_assignment_field((int) $project->id, $fieldMap[$wf] ?? $wf, $data[$wf]);
-                }
-            }
-        }
-
         if ($update_all_other_transactions || $update_credit_notes) {
             $transactions_update = [
                 'billing_street'   => $data['billing_street'],
@@ -1376,10 +1339,9 @@ class Clients_model extends App_Model
      */
     /**
      * Work Status -> Progress mapping rule (single source of truth,
-     * called from both existing Customer update paths below -
-     * update_assignment_field() for the Customer list's inline Work
-     * Status dropdown, and update() for the full Customer Edit page
-     * save - so the rule can never drift between the two entry points):
+     * applied on the Customer update() save path - the Customer page is
+     * display-only for assignment fields, so this is the only write path
+     * that can still receive a work_status change):
      *
      *   Pending     -> 0
      *   In Progress -> 25, but ONLY if progress is currently 0; left
@@ -1432,60 +1394,54 @@ class Clients_model extends App_Model
         $data['progress'] = $this->resolve_progress_for_work_status($data['work_status'], $current->progress);
     }
 
-    public function update_assignment_field($id, $field, $value)
+    /**
+     * Effective work/assignment fields for a customer: the customer's
+     * LATEST related project record - the exact same relationship the
+     * Customers list table's work-tracking columns read
+     * (application/views/admin/tables/clients.php COALESCE subqueries),
+     * falling back to the customer row's own columns only when the
+     * project value is NULL.
+     *
+     * This is the GET-side for the Customer Profile/Edit page's
+     * read-only assignment display: the project owns Department /
+     * Assigned Employee / Assigned Work / Work Status / Due Date /
+     * Progress and they are edited from the Project page only, so the
+     * customer page binds these effective values for display without
+     * duplicating project data into the clients table.
+     *
+     * @param  int $client_id
+     * @return array [department, employee_name, assigned_work, work_status, due_date, progress]
+     *               empty when the customer has no project
+     */
+    public function get_latest_project_assignment_fields($client_id)
     {
-        // Single source of truth: for a customer that HAS a project, the
-        // work fields (department / assigned employee / assigned work /
-        // work status / due date / progress) live on the project record -
-        // the Admin Projects list, the employee panels and the Customer
-        // Portal all read that same record. The Customers list's inline
-        // edits are therefore routed to that project record (whose model
-        // enforces its own field whitelist and keeps work_status/status/
-        // progress in sync) instead of only the tblclients columns, which
-        // the Customers list no longer displays for these fields. The
-        // tblclients fallback below only handles customers without any
-        // project yet.
-        $project = $this->db->select('id')
-            ->where('clientid', $id)
+        $project = $this->db->select('department, assigned_employee, assigned_work, work_status, progress, deadline')
+            ->where('clientid', $client_id)
             ->order_by('id', 'DESC')
             ->limit(1)
             ->get(db_prefix() . 'projects')
             ->row();
 
-        if ($project) {
-            $CI = &get_instance();
-            $CI->load->model('projects_model');
-
-            $fieldMap = [
-                'employee_name' => 'assigned_employee',
-                'due_date'      => 'deadline',
-            ];
-
-            return $CI->projects_model->update_assignment_field((int) $project->id, $fieldMap[$field] ?? $field, $value);
+        if (!$project) {
+            return [];
         }
 
-        $data = [
-            $field         => $value,
-            'last_updated' => date('Y-m-d H:i:s'),
+        return [
+            'department'    => $project->department,
+            'employee_name' => $project->assigned_employee,
+            'assigned_work' => $project->assigned_work,
+            'work_status'   => $project->work_status,
+            'due_date'      => $project->deadline,
+            'progress'      => $project->progress,
         ];
-
-        if ($field == 'department') {
-            $data['employee_name'] = null;
-        }
-
-        $this->sync_progress_with_work_status($data, $id);
-
-        $this->db->where('userid', $id);
-        $this->db->update(db_prefix() . 'clients', $data);
-
-        $updated = $this->db->affected_rows() > 0;
-
-        if ($updated) {
-            log_activity('Customer Assignment Updated [ID: ' . $id . ', Field: ' . $field . ']');
-        }
-
-        return $updated;
     }
+
+    /**
+     * @param  integer ID
+     * @param  integer Status ID
+     * @return boolean
+     * Update contact status Active/Inactive
+     */
 
     /**
      * @param  integer ID

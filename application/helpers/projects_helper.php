@@ -488,3 +488,24 @@ function total_project_finished_tasks_by_milestone($milestone_id, $project_id)
         'milestone' => $milestone_id,
     ]);
 }
+
+/**
+ * Full customer list for the Add/Edit Project form's Customer dropdown.
+ *
+ * One query, LEFT JOIN to the primary contact so a customer without any
+ * contact still appears (its contact fields are NULL and the view renders
+ * 'Unknown'). Used only by the project form - replaces the previous
+ * single-option ajax-style select so the dropdown shows the whole visible
+ * list with search (company, contact name, email, phone via data-subtext).
+ *
+ * @return array rows: userid, company, firstname, lastname, email, phonenumber
+ */
+function get_project_customer_options()
+{
+    $CI = &get_instance();
+    $CI->db->select(db_prefix() . 'clients.userid,' . db_prefix() . 'clients.company,' . db_prefix() . 'contacts.firstname,' . db_prefix() . 'contacts.lastname,' . db_prefix() . 'contacts.email,' . db_prefix() . 'contacts.phonenumber');
+    $CI->db->join(db_prefix() . 'contacts', db_prefix() . 'contacts.userid=' . db_prefix() . 'clients.userid AND ' . db_prefix() . 'contacts.is_primary=1', 'left');
+    $CI->db->order_by(db_prefix() . 'clients.company', 'asc');
+
+    return $CI->db->get(db_prefix() . 'clients')->result_array();
+}

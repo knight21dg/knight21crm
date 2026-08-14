@@ -17,6 +17,7 @@
                             _l('dev_portal_column_due_date'),
                             _l('dev_portal_column_status'),
                             _l('dev_portal_column_progress'),
+                            _l('dev_portal_column_note'),
                             _l('dev_portal_column_priority'),
                             _l('dev_portal_column_assigned_team'),
                             _l('dev_portal_column_actions'),
@@ -30,10 +31,10 @@
 <?php init_tail(); ?>
 <script>
     $(function() {
-        // Priority (7), Assigned Team (8) and Actions/Open (9) are all
+        // Priority (8), Assigned Team (9) and Actions/Open (10) are all
         // derived, no 1:1 SQL column - see Dev_portal::my_projects_table()'s
         // own file-level note.
-        initDataTable('.table-dev-portal-my-projects', admin_url + 'dev_portal/my_projects_table', [7, 8, 9], [7, 8, 9], {}, [4, 'asc']);
+        initDataTable('.table-dev-portal-my-projects', admin_url + 'dev_portal/my_projects_table', [8, 9, 10], [8, 9, 10], {}, [4, 'asc']);
     });
 </script>
 </body>

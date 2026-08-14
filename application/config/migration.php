@@ -69,7 +69,7 @@ $config['migration_auto_latest'] = false;
 | be upgraded / downgraded to.
 |
 */
-$config['migration_version'] = 382; // Single project status unification: work_status <-> status backfill
+$config['migration_version'] = 384; // 383: optional per-project Company column. 384: seed legacy status_description into shared project_notes
 
 /*
 |--------------------------------------------------------------------------

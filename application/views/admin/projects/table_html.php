@@ -63,15 +63,14 @@ render_datatable($table_data, isset($class) ?  $class : 'projects', ['number-ind
 <script>
     /**
      * Admin-only inline quick-edit for the Projects list (Department,
-     * Assigned Employee, Assigned Work, Work Status). Mirrors the Customers
-     * list's update_customer_field()/customer_mark_as() pattern exactly -
-     * same endpoint-call shape, same "reload the table in place" behavior,
-     * using the table's own real CSS class (no dt-table class exists in
-     * this codebase - render_datatable() only ever outputs "table-{class}").
+     * Assigned Employee, Assigned Work, Work Status). Same endpoint-call
+     * shape and "reload the table in place" behavior the Customers list
+     * used before it became display-only - the PROJECT page remains the
+     * authoritative editing location (update_assignment_field() on
+     * projects/ stays active; the customers/ endpoint was removed).
      * This file is shared by both the main Projects list (.table-projects)
      * and the Customer Profile "Projects" tab (.table-projects-single-client),
-     * so both are checked here instead of hardcoding just one, like
-     * Customers does (which only ever appears in a single context).
+     * so both are checked here instead of hardcoding just one.
      */
     function reload_projects_table() {
         if ($.fn.DataTable.isDataTable('.table-projects')) {

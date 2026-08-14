@@ -80,6 +80,12 @@ class Projects extends AdminController
         if ($this->input->post()) {
             $data                = $this->input->post();
             $data['description'] = html_purify($this->input->post('description', false));
+            // Optional Company label: empty input must be stored as NULL (not
+            // '') so the list keeps rendering its 'Unknown' fallback.
+            $data['company'] = trim((string) ($data['company'] ?? ''));
+            if ($data['company'] === '') {
+                $data['company'] = null;
+            }
             if ($id == '') {
                 if (staff_cant('create', 'projects')) {
                     access_denied('Projects');
@@ -113,7 +119,12 @@ class Projects extends AdminController
             $data['project']->settings->available_features = unserialize($data['project']->settings->available_features);
 
             $data['project_members'] = $this->projects_model->get_project_members($id);
-            $title                   = _l('edit', _l('project'));
+            // Shared note history for the edit form's Notes panel - all
+            // notes for the project (newest first), not just the current
+            // staff member's own (get_staff_notes() without the staff
+            // filter), because these are team notes, not personal ones.
+            $data['project_notes'] = $this->projects_model->get_staff_notes($id);
+            $title                 = _l('edit', _l('project'));
         }
 
         if ($this->input->get('customer_id')) {
@@ -133,6 +144,48 @@ class Projects extends AdminController
 
         $data['title'] = $title;
         $this->load->view('admin/projects/project', $data);
+    }
+
+    /**
+     * Add a shared project note from the project edit form. Writes to the
+     * SAME store as the staff portal (tblproject_notes via
+     * Projects_model::save_note()), which also keeps the latest-note cache
+     * on tblprojects in sync - one note system, both sides.
+     *
+     * @param int $project_id
+     */
+    public function add_project_note($project_id)
+    {
+        if (staff_cant('edit', 'projects')) {
+            ajax_access_denied();
+        }
+
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+        }
+
+        if (!$this->projects_model->get($project_id)) {
+            echo json_encode(['success' => false, 'message' => _l('project_not_found')]);
+
+            return;
+        }
+
+        $note = trim((string) $this->input->post('note'));
+
+        if ($note === '') {
+            echo json_encode(['success' => false, 'message' => _l('project_notes_enter_note')]);
+
+            return;
+        }
+
+        $inserted = $this->projects_model->save_note(['title' => null, 'content' => $note], $project_id);
+
+        echo json_encode([
+            'success'  => (bool) $inserted,
+            'author'   => get_staff_full_name(),
+            'when'     => _dt(date('Y-m-d H:i:s')),
+            'when_ago' => time_ago(date('Y-m-d H:i:s')),
+        ]);
     }
 
     /**

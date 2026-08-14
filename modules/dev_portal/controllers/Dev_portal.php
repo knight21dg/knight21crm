@@ -167,6 +167,11 @@ class Dev_portal extends AdminController
             db_prefix() . 'projects.deadline',
             db_prefix() . 'projects.status',
             db_prefix() . 'projects.progress',
+            // Latest note - the single-value cache on tblprojects that every
+            // note write keeps synced from tblproject_notes (see
+            // Projects_model::_refresh_latest_note_cache()), so this column
+            // shows the same latest note as the Admin Projects list.
+            db_prefix() . 'projects.status_description as latest_note',
         ];
 
         $sIndexColumn = 'id';
@@ -183,6 +188,11 @@ class Dev_portal extends AdminController
 
         $result = data_tables_init($aColumns, $sIndexColumn, $sTable, $join, $where, [
             db_prefix() . 'projects.id',
+            // progress_from_tasks - raw flag only (no visible column),
+            // consumed by Projects_model::resolve_progress_value() below
+            // so this table shows the SAME effective progress as the Admin
+            // Projects list and the Customer Portal (single resolver).
+            db_prefix() . 'projects.progress_from_tasks',
             // Priority - the highest priority among this project's own
             // tasks (tbltasks.rel_type='project'), since tblprojects has
             // no priority column of its own - reuses the exact
@@ -222,8 +232,25 @@ class Dev_portal extends AdminController
             $status = get_project_status_by_id($aRow[db_prefix() . 'projects.status']);
             $row[]  = '<span class="label" style="color:' . $status['color'] . ';border:1px solid ' . adjust_hex_brightness($status['color'], 0.4) . ';background:' . adjust_hex_brightness($status['color'], 0.04) . ';">' . e($status['name']) . '</span>';
 
-            $progress = (int) $aRow[db_prefix() . 'projects.progress'];
-            $row[]    = '<div class="progress" style="margin-bottom:0;"><div class="progress-bar" role="progressbar" style="width:' . $progress . '%;" aria-valuenow="' . $progress . '" aria-valuemin="0" aria-valuemax="100">' . $progress . '%</div></div>';
+            // Single shared resolver (Projects_model::resolve_progress_value())
+            // - the exact same effective-progress rule the Admin Projects
+            // list and the Customer Portal use. Reads the raw stored fields
+            // from this row (status / progress / progress_from_tasks) and
+            // returns the same percentage every other panel shows, so a
+            // manual progress write (which also clears
+            // progress_from_tasks) or a status change via mark_as() both
+            // land here instantly.
+            $progressValue = $this->projects_model->resolve_progress_value([
+                'id'                  => $aRow['id'],
+                'status'              => $aRow[db_prefix() . 'projects.status'],
+                'progress'            => $aRow[db_prefix() . 'projects.progress'],
+                'progress_from_tasks' => $aRow['progress_from_tasks'],
+            ]);
+            $row[]    = '<div class="progress" style="margin-bottom:0;"><div class="progress-bar" role="progressbar" style="width:' . $progressValue . '%;" aria-valuenow="' . $progressValue . '" aria-valuemin="0" aria-valuemax="100">' . $progressValue . '%</div></div>';
+
+            // Latest Note - compact truncated cell (full text in tooltip),
+            // same convention as the Admin Projects list's Note column.
+            $row[] = $aRow['latest_note'] != '' ? '<span data-toggle="tooltip" data-title="' . e($aRow['latest_note']) . '">' . e(mb_strimwidth($aRow['latest_note'], 0, 40, '...')) . '</span>' : '-';
 
             if (!empty($aRow['derived_priority'])) {
                 $row[] = '<span class="label" style="color:' . task_priority_color($aRow['derived_priority']) . ';">' . e(task_priority($aRow['derived_priority'])) . '</span>';
@@ -385,6 +412,16 @@ class Dev_portal extends AdminController
 
         $data['title']           = $project->name;
         $data['project']         = $project;
+        // Shared project notes (newest first) - the SAME store the Admin
+        // Projects list's Note column and the admin Notes tab read
+        // (tblproject_notes); get_staff_notes() without a staff filter so
+        // every team note is visible, not just personal ones.
+        $data['project_notes']   = $this->projects_model->get_staff_notes($id);
+        // Effective progress via the SAME single resolver every other
+        // panel uses (projects_model->resolve_progress_value()) - the
+        // workspace's bar and update dropdown must never disagree with
+        // the Admin Projects list or the Customer Portal.
+        $data['effective_progress'] = $this->projects_model->resolve_progress_value($project);
         $data['status_options']  = dev_portal_project_status_options();
         $data['status_label']    = dev_portal_project_status_label($project->status);
         $data['is_cancelled']    = (int) $project->status === 5;
@@ -449,6 +486,36 @@ class Dev_portal extends AdminController
         ]);
 
         echo json_encode(['success' => true]);
+    }
+
+    /**
+     * Add a shared project note from the Workspace. Writes into the SAME
+     * store as the admin side (Projects_model::save_note() ->
+     * tblproject_notes, which also refreshes the latest-note cache on
+     * tblprojects), so Admin immediately sees the newest note - one note
+     * system, both sides. Gated by authorize_project_access() (admin or a
+     * real tblproject_members row), never a posted staff id.
+     */
+    public function project_add_note($id)
+    {
+        $this->authorize_project_access($id, true);
+
+        $note = trim((string) $this->input->post('note'));
+
+        if ($note === '') {
+            echo json_encode(['success' => false, 'message' => _l('dev_portal_note_enter_note')]);
+
+            return;
+        }
+
+        $inserted = $this->projects_model->save_note(['title' => null, 'content' => $note], $id);
+
+        echo json_encode([
+            'success'  => (bool) $inserted,
+            'author'   => get_staff_full_name(),
+            'when'     => _dt(date('Y-m-d H:i:s')),
+            'when_ago' => time_ago(date('Y-m-d H:i:s')),
+        ]);
     }
 
     /**

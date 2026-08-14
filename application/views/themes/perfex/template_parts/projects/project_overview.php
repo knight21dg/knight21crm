@@ -62,6 +62,14 @@
             <p><?= e(_d($project->deadline)); ?></p>
         </div>
         <?php } ?>
+        <?php if (! empty($project->assigned_work)) { ?>
+        <div class="tw-flex tw-space-x-4">
+            <p class="bold">
+                <?= _l('project_assigned_work'); ?>
+            </p>
+            <p><?= e($project->assigned_work); ?></p>
+        </div>
+        <?php } ?>
         <?php if ($project->date_finished) { ?>
         <div class="text-success tw-flex tw-space-x-4">
             <p class="bold">

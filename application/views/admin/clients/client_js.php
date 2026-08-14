@@ -39,26 +39,6 @@ $(function() {
         }));
     }
 
-    // Department -> Employee dependent dropdown - staff options come from
-    // the Business Departments module (get_business_department_staff_map()),
-    // each entry a real {staffid, name} pair.
-    $('select[name="department"]').on('change', function() {
-        var $employeeSelect = $('select[name="employee_name"]');
-        var department = $(this).val();
-        var employees = (typeof departmentEmployeeMap != 'undefined' && department && departmentEmployeeMap[department]) ?
-            departmentEmployeeMap[department] : [];
-
-        $employeeSelect.html('<option value=""></option>');
-        $.each(employees, function(i, employee) {
-            $employeeSelect.append($('<option>', {
-                value: employee.staffid,
-                text: employee.name
-            }));
-        });
-
-        $employeeSelect.prop('disabled', employees.length === 0).val('').selectpicker('refresh');
-    });
-
     // Save button not hidden if passed from url ?tab= we need to re-click again
     if (tab_active) {
         $('body').find('.nav-tabs [href="#' + tab_active + '"]').click();
@@ -216,13 +196,7 @@ $(function() {
         undefined, 'undefined',
         <?php echo hooks()->apply_filters('projects_table_default_order', json_encode([5, 'asc'])); ?>);
 
-    var vRules = {
-        department: 'required',
-        employee_name: 'required',
-        assigned_work: 'required',
-        work_status: 'required',
-        due_date: 'required',
-    };
+    var vRules = {};
     if (app.options.company_is_required == 1) {
         vRules.company = 'required';
     }

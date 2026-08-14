@@ -284,6 +284,27 @@ class Clients extends AdminController
             $data['client'] = $client;
             $title          = $client->company;
 
+            // Effective assignment values (Department / Assigned Employee /
+            // Assigned Work / Work Status / Due Date / Progress): the
+            // PROJECT is the single source of truth for these, so the
+            // Customer Profile/Edit page binds them from the customer's
+            // latest related project record (the same latest-project
+            // relationship the Customers list reads via its COALESCE
+            // columns) for DISPLAY ONLY - they are edited exclusively
+            // from the Project page, never on the Customer page. Company
+            // is deliberately NOT touched - only the real
+            // tblclients.company value is loaded/saved; 'Unknown' is a
+            // listing-only display fallback and must never be persisted.
+            if ($group == 'profile') {
+                $effectiveAssignmentFields = $this->clients_model->get_latest_project_assignment_fields($id);
+
+                foreach (['department', 'employee_name', 'assigned_work', 'work_status', 'due_date', 'progress'] as $assignmentField) {
+                    if (array_key_exists($assignmentField, $effectiveAssignmentFields) && $effectiveAssignmentFields[$assignmentField] !== null) {
+                        $client->{$assignmentField} = $effectiveAssignmentFields[$assignmentField];
+                    }
+                }
+            }
+
             // Get all active staff members (used to add reminder)
             $data['members'] = $data['staff'];
 
@@ -378,31 +399,6 @@ class Clients extends AdminController
         } else {
             echo 'false';
         }
-    }
-
-    /**
-     * Inline AJAX quick-edit for Customer Assignment fields from the Customer
-     * list (Department / Employee / Work Status) - mirrors the Leads Status
-     * dropdown's update_lead_status() flow. Assigned Work, Due Date and
-     * Progress are edited only from the Customer Edit page.
-     *
-     * @param integer $id
-     */
-    public function update_assignment_field($id)
-    {
-        if (staff_cant('edit', 'customers')) {
-            if (!is_customer_admin($id)) {
-                ajax_access_denied();
-            }
-        }
-
-        $field = $this->input->post('field');
-
-        if (!in_array($field, ['department', 'employee_name', 'work_status'], true)) {
-            return;
-        }
-
-        $this->clients_model->update_assignment_field($id, $field, $this->input->post('value'));
     }
 
     public function form_contact($customer_id, $contact_id = '')
