@@ -191,6 +191,18 @@ class Projects_model extends App_Model
             'rel_type' => 'project',
             'rel_id'   => $id,
         ]);
+
+        // Root cause of new projects showing 100% progress: with zero
+        // tasks, $total_finished_tasks (0) >= $total_project_tasks (0) was
+        // TRUE below, so a brand-new project with "Calculate progress
+        // through tasks" enabled (checked by default on the create form)
+        // and no tasks yet at all reported 100% instead of 0%. A project
+        // with no tasks has no completed work to show - must be 0%, not a
+        // "nothing left to do" 100%.
+        if ($total_project_tasks === 0) {
+            return 0;
+        }
+
         $total_finished_tasks = total_rows(db_prefix() . 'tasks', [
             'rel_type' => 'project',
             'rel_id'   => $id,
@@ -201,9 +213,7 @@ class Projects_model extends App_Model
         if ($total_finished_tasks >= floatval($total_project_tasks)) {
             $percent = 100;
         } else {
-            if ($total_project_tasks !== 0) {
-                $percent = number_format(($total_finished_tasks * 100) / $total_project_tasks, 2);
-            }
+            $percent = number_format(($total_finished_tasks * 100) / $total_project_tasks, 2);
         }
 
         return $percent;

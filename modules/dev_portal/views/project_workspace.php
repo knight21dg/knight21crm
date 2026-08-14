@@ -60,40 +60,41 @@
 
                         <hr class="hr-panel-separator" />
 
-                        <!-- Progress + Status update -->
+                        <!--
+                            Project Information: Progress + Status + Note, all
+                            saved together by the ONE "Save Changes" button
+                            below - a single call to
+                            dev_portal/project_save_changes/<id>, which only
+                            writes whichever of the three actually changed
+                            (see that action's docblock). No more separate
+                            Update Progress / Change Status / Add Note
+                            buttons - the controls stay, only the per-field
+                            Save buttons are gone.
+                        -->
+                        <h5><?= _l('dev_portal_workspace_project_information'); ?></h5>
                         <div class="row">
                             <div class="col-md-6 tw-mb-4">
-                                <label><?= _l('dev_portal_workspace_update_progress'); ?></label>
-                                <div class="tw-flex tw-gap-2">
-                                    <select id="workspace-progress-select" class="form-control">
-                                        <?php foreach (get_progress_options() as $option) { ?>
-                                        <option value="<?= (int) $option; ?>" <?= (int) $effective_progress === (int) $option ? 'selected' : ''; ?>><?= (int) $option; ?>%</option>
-                                        <?php } ?>
-                                    </select>
-                                    <button type="button" class="btn btn-primary" onclick="workspace_update_progress();"><?= _l('save'); ?></button>
-                                </div>
+                                <label><?= _l('dev_portal_workspace_progress'); ?></label>
+                                <select id="workspace-progress-select" class="form-control">
+                                    <?php foreach (get_progress_options() as $option) { ?>
+                                    <option value="<?= (int) $option; ?>" <?= (int) $effective_progress === (int) $option ? 'selected' : ''; ?>><?= (int) $option; ?>%</option>
+                                    <?php } ?>
+                                </select>
                             </div>
                             <div class="col-md-6 tw-mb-4">
                                 <label><?= _l('dev_portal_workspace_change_status'); ?></label>
                                 <?php if ($is_cancelled) { ?>
                                 <div><span class="label label-default"><?= e($status_label); ?></span> <span class="text-muted"><?= _l('dev_portal_workspace_cancelled_readonly'); ?></span></div>
                                 <?php } else { ?>
-                                <div class="tw-flex tw-gap-2">
-                                    <select id="workspace-status-select" class="form-control">
-                                        <?php foreach ($status_options as $status_id => $status_name) { ?>
-                                        <option value="<?= (int) $status_id; ?>" <?= (int) $project->status === (int) $status_id ? 'selected' : ''; ?>><?= e($status_name); ?></option>
-                                        <?php } ?>
-                                    </select>
-                                    <button type="button" class="btn btn-primary" onclick="workspace_update_status();"><?= _l('save'); ?></button>
-                                </div>
+                                <select id="workspace-status-select" class="form-control">
+                                    <?php foreach ($status_options as $status_id => $status_name) { ?>
+                                    <option value="<?= (int) $status_id; ?>" <?= (int) $project->status === (int) $status_id ? 'selected' : ''; ?>><?= e($status_name); ?></option>
+                                    <?php } ?>
+                                </select>
                                 <?php } ?>
                             </div>
                         </div>
 
-                        <hr class="hr-panel-separator" />
-
-                        <!-- Notes - shared with Admin (tblproject_notes) -->
-                        <h5><?= _l('dev_portal_workspace_notes'); ?></h5>
                         <?php $latest_note = $project_notes[0] ?? null; ?>
                         <div class="row">
                             <div class="col-md-12 tw-mb-2">
@@ -104,12 +105,19 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tw-flex tw-gap-2 tw-mb-3">
+                        <div class="tw-mb-3">
+                            <label><?= _l('dev_portal_workspace_notes'); ?></label>
                             <textarea id="workspace-note-input" class="form-control" rows="2" placeholder="<?= _l('dev_portal_workspace_note_placeholder'); ?>"></textarea>
-                            <button type="button" class="btn btn-primary" onclick="workspace_add_note();"><?= _l('dev_portal_workspace_add_note'); ?></button>
                         </div>
+
+                        <div class="tw-flex tw-justify-end tw-mb-3">
+                            <button type="button" id="workspace-save-changes-btn" class="btn btn-primary" onclick="workspace_save_changes();">
+                                <i class="fa-solid fa-floppy-disk"></i> <?= _l('dev_portal_workspace_save_changes'); ?>
+                            </button>
+                        </div>
+
                         <div class="text-muted tw-text-xs"><?= _l('dev_portal_workspace_note_history'); ?></div>
-                        <ul class="list-unstyled">
+                        <ul class="list-unstyled" id="workspace-note-history">
                             <?php if (empty($project_notes)) { ?>
                             <li class="text-muted"><?= _l('dev_portal_workspace_no_notes'); ?></li>
                             <?php } else { ?>
@@ -240,30 +248,69 @@
 <?php init_tail(); ?>
 <script>
     var WORKSPACE_PROJECT_ID = <?= (int) $project->id; ?>;
+    // Snapshot of what the Progress/Status selects were rendered with, so
+    // Save Changes can tell "nothing changed" apart from "resave the same
+    // value" purely on the client, without a request round-trip. The
+    // project_save_changes endpoint itself independently re-checks each
+    // field against the CURRENT stored value before writing anything, so
+    // this snapshot is a UX convenience (skip the request/keep the button
+    // inert), not the actual safety net.
+    var workspace_initial_progress = $('#workspace-progress-select').val();
+    var workspace_initial_status   = $('#workspace-status-select').length ? $('#workspace-status-select').val() : null;
+    var workspace_saving_changes   = false;
 
-    function workspace_update_progress() {
-        $.post(admin_url + 'dev_portal/project_update_progress/' + WORKSPACE_PROJECT_ID, {
-            progress: $('#workspace-progress-select').val()
-        }).done(function(response) {
+    function workspace_save_changes() {
+        if (workspace_saving_changes) {
+            return;
+        }
+
+        var progress   = $('#workspace-progress-select').val();
+        var status_id  = $('#workspace-status-select').length ? $('#workspace-status-select').val() : null;
+        var note       = $.trim($('#workspace-note-input').val());
+
+        var progress_changed = progress !== workspace_initial_progress;
+        var status_changed   = status_id !== null && status_id !== workspace_initial_status;
+
+        if (!progress_changed && !status_changed && note === '') {
+            alert_float('danger', <?= json_encode(_l('dev_portal_workspace_nothing_to_save')); ?>);
+            return;
+        }
+
+        var payload = {};
+        if (progress_changed) {
+            payload.progress = progress;
+        }
+        if (status_changed) {
+            payload.status_id = status_id;
+        }
+        if (note !== '') {
+            payload.note = note;
+        }
+
+        workspace_saving_changes = true;
+        var $btn = $('#workspace-save-changes-btn');
+        var original_html = $btn.html();
+        $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> ' + <?= json_encode(_l('dev_portal_workspace_saving')); ?>);
+
+        $.post(admin_url + 'dev_portal/project_save_changes/' + WORKSPACE_PROJECT_ID, payload).done(function(response) {
             var data = typeof response === 'string' ? JSON.parse(response) : response;
             if (data.success) {
+                alert_float('success', <?= json_encode(_l('dev_portal_workspace_save_success')); ?>);
+                // Full reload re-renders Progress/Status from the fresh DB
+                // state (naturally "keeps the current selected value" even
+                // when the resolver recalculates it, e.g. task-derived
+                // progress) and refreshes Latest Note / Note History - the
+                // same pattern every other workspace action already uses.
                 location.reload();
             } else {
                 alert_float('danger', data.message);
+                workspace_saving_changes = false;
+                $btn.prop('disabled', false).html(original_html);
             }
-        });
-    }
-
-    function workspace_update_status() {
-        $.post(admin_url + 'dev_portal/project_update_status/' + WORKSPACE_PROJECT_ID, {
-            status_id: $('#workspace-status-select').val()
-        }).done(function(response) {
-            var data = typeof response === 'string' ? JSON.parse(response) : response;
-            if (data.success) {
-                location.reload();
-            } else {
-                alert_float('danger', data.message);
-            }
+        }).fail(function() {
+            alert_float('danger', <?= json_encode(_l('something_went_wrong')); ?>);
+            workspace_saving_changes = false;
+            $btn.prop('disabled', false).html(original_html);
         });
     }
 
@@ -310,24 +357,6 @@
         });
 
         return false;
-    }
-
-    function workspace_add_note() {
-        var note = $.trim($('#workspace-note-input').val());
-        if (note === '') {
-            alert_float('danger', <?= json_encode(_l('dev_portal_note_enter_note')); ?>);
-            return;
-        }
-        $.post(admin_url + 'dev_portal/project_add_note/' + WORKSPACE_PROJECT_ID, {
-            note: note
-        }).done(function(response) {
-            var data = typeof response === 'string' ? JSON.parse(response) : response;
-            if (data.success) {
-                location.reload();
-            } else {
-                alert_float('danger', data.message);
-            }
-        });
     }
 
     function workspace_add_comment() {

@@ -363,6 +363,10 @@ class Dev_portal extends AdminController
             // takes one fixed $task_id and can't run per-row in a
             // listing) - same business logic, not reinvented.
             '(SELECT SUM(CASE WHEN end_time IS NULL THEN ' . time() . '-start_time ELSE end_time-start_time END) FROM ' . db_prefix() . 'taskstimers WHERE task_id = ' . db_prefix() . 'tasks.id) as logged_seconds',
+            // Latest Note - same correlated-subquery convention the Admin
+            // Tasks list's own Latest Note column uses (no cache column on
+            // tbltasks - see migration 385's docblock).
+            '(SELECT content FROM ' . db_prefix() . 'task_notes WHERE task_id = ' . db_prefix() . 'tasks.id ORDER BY dateadded DESC, id DESC LIMIT 1) as latest_note',
         ]);
 
         $output  = $result['output'];
@@ -371,7 +375,12 @@ class Dev_portal extends AdminController
         foreach ($rResult as $aRow) {
             $row = [];
 
-            $row[] = '<a href="#" onclick="init_task_modal(' . (int) $aRow['id'] . '); return false;" class="tw-font-medium">' . e($aRow[db_prefix() . 'tasks.name']) . '</a>';
+            // Links to the Task Workspace (own page, matching how the My
+            // Projects table links to project_workspace) instead of the
+            // generic admin init_task_modal() popup - Description and
+            // Task Notes both live there in the clean, staff-facing
+            // layout this module already established for Projects.
+            $row[] = '<a href="' . admin_url('dev_portal/task_workspace/' . (int) $aRow['id']) . '" class="tw-font-medium">' . e($aRow[db_prefix() . 'tasks.name']) . '</a>';
             $row[] = $aRow['project_name'] ? e($aRow['project_name']) : '-';
             $row[] = '<span class="label" style="color:' . task_priority_color($aRow[db_prefix() . 'tasks.priority']) . ';">' . e(task_priority($aRow[db_prefix() . 'tasks.priority'])) . '</span>';
             $row[] = format_task_status($aRow[db_prefix() . 'tasks.status']);
@@ -384,11 +393,107 @@ class Dev_portal extends AdminController
             $logged_seconds = (int) $aRow['logged_seconds'];
             $row[] = $logged_seconds > 0 ? e(seconds_to_time_format($logged_seconds)) : '-';
 
+            $row[] = $aRow['latest_note'] ? '<span data-toggle="tooltip" data-title="' . e($aRow['latest_note']) . '">' . e(mb_strimwidth($aRow['latest_note'], 0, 40, '...')) . '</span>' : '-';
+
             $row['DT_RowId'] = 'dev_portal_task_' . $aRow['id'];
             $output['aaData'][] = $row;
         }
 
         echo json_encode($output);
+    }
+
+    /**
+     * Shared authorization check for the Task Workspace - Admin or an
+     * actual assignee (Tasks_model::is_task_assignee(), the exact same
+     * table/relationship get_my_tasks_where() already scopes "My Tasks"
+     * by), never trusting the client. Deliberately narrower than the
+     * admin side's own get_tasks_where_string() (which also allows
+     * followers/creators/public tasks) - a task that isn't in this
+     * staff member's own My Tasks list (assignee-scoped only) must not
+     * be openable here either, by URL guess or otherwise.
+     *
+     * @param  int  $task_id
+     * @param  bool $is_ajax
+     * @return void dies via access_denied()/ajax_access_denied() if unauthorized
+     */
+    private function authorize_task_access($task_id, $is_ajax = false)
+    {
+        if (is_admin() || $this->tasks_model->is_task_assignee(get_staff_user_id(), $task_id)) {
+            return;
+        }
+
+        if ($is_ajax) {
+            ajax_access_denied();
+        }
+
+        access_denied('Development Portal');
+    }
+
+    /**
+     * Task Workspace - a secure, assignee-scoped view onto the SAME task
+     * record the Admin Tasks list and task modal already store and
+     * manage (tbltasks/tbltask_assigned/tbltask_notes - no second task
+     * system, no duplicated data). Deliberately its own clean page
+     * (Task Name / Description / Task Information / Notes) rather than
+     * the generic, comment/checklist/timer-heavy admin task modal - same
+     * "simplified staff-facing view over the same data" relationship
+     * project_workspace() already has to the Admin Project edit page.
+     */
+    public function task_workspace($id)
+    {
+        $this->authorize_task_access($id);
+
+        $task = $this->tasks_model->get($id);
+
+        if (!$task) {
+            blank_page(_l('task_not_found'));
+        }
+
+        $data['title']      = $task->name;
+        $data['task']       = $task;
+        // Shared task notes (newest first) - the SAME store the Admin
+        // Tasks list's Latest Note column and the admin task modal's
+        // Notes panel read (tbltask_notes); get_staff_notes() without a
+        // staff filter so every note is visible, not just personal ones.
+        $data['task_notes'] = $this->tasks_model->get_staff_notes($id);
+
+        $data['customer_name'] = null;
+        $data['project_name']  = null;
+        if ($task->rel_type == 'project' && $task->project_data) {
+            $data['project_name']  = $task->project_data->name;
+            $data['customer_name'] = get_company_name($task->project_data->clientid);
+        }
+
+        $this->load->view('task_workspace', $data);
+    }
+
+    /**
+     * Add a shared Task Note from the Workspace. Writes into the SAME
+     * store the admin side (Tasks::add_task_note()) writes into
+     * (Tasks_model::save_note() -> tbltask_notes) - one note system,
+     * both sides. Gated by authorize_task_access() (admin or a real
+     * tbltask_assigned row), never a posted staff id.
+     */
+    public function task_add_note($id)
+    {
+        $this->authorize_task_access($id, true);
+
+        $note = trim((string) $this->input->post('note'));
+
+        if ($note === '') {
+            echo json_encode(['success' => false, 'message' => _l('task_notes_enter_note')]);
+
+            return;
+        }
+
+        $inserted = $this->tasks_model->save_note(['title' => null, 'content' => $note], $id);
+
+        echo json_encode([
+            'success'  => (bool) $inserted,
+            'author'   => get_staff_full_name(),
+            'when'     => _dt(date('Y-m-d H:i:s')),
+            'when_ago' => time_ago(date('Y-m-d H:i:s')),
+        ]);
     }
 
     /**
@@ -437,84 +542,116 @@ class Dev_portal extends AdminController
     }
 
     /**
-     * Update Progress - reuses Projects_model::update_assignment_field()
-     * (widened to accept 'progress', see that method's own docblock for
-     * why the heavier Projects_model::update() is deliberately NOT used
-     * here) rather than a new setter.
+     * Save Changes - the ONE Project Workspace endpoint for Progress +
+     * Status + Note, replacing the three separate actions this used to be
+     * (project_update_progress()/project_update_status()/project_add_note(),
+     * now removed) so the UI has a single Save button instead of three.
+     * Deliberately still built on the exact same model methods those three
+     * actions called - Projects_model::update_assignment_field()/mark_as()/
+     * save_note() - so the Admin <-> Customer Portal <-> Staff Portal
+     * synchronization those methods already provide is completely
+     * unchanged; this consolidates the endpoint, not the underlying write
+     * path.
+     *
+     * Each of the three pieces is posted independently (progress/status_id/
+     * note are all optional per-request) and is only actually written when
+     * BOTH posted AND different from the project's current stored value:
+     *   - Progress is compared against resolve_progress_value() (the same
+     *     effective-progress resolver the whole app already uses), so
+     *     re-saving an unchanged dropdown value never flips the project off
+     *     task-derived progress (update_assignment_field()'s 'progress'
+     *     branch always clears progress_from_tasks, so it must only run on
+     *     a genuine change).
+     *   - Status is compared against the project's raw status column
+     *     before calling mark_as(), because mark_as() unconditionally logs
+     *     activity/fires notifications/hooks whenever its UPDATE reports
+     *     affected_rows() > 0 - which it always would here, since it also
+     *     always bumps last_updated. Without this guard, clicking Save
+     *     Changes for a Progress-only or Note-only edit would spuriously
+     *     re-fire "project status updated" activity/notifications every
+     *     time.
+     *   - Note is only saved when non-empty after trim(), exactly like the
+     *     old project_add_note() - never writes an empty note.
+     *
+     * If none of the three actually changed, no model write happens at
+     * all and the response still reports success (nothing to save is not
+     * an error).
      */
-    public function project_update_progress($id)
+    public function project_save_changes($id)
     {
         $this->authorize_project_access($id, true);
 
-        $progress = $this->input->post('progress');
+        $project = $this->projects_model->get($id);
 
-        if ($progress === null || !is_numeric($progress)) {
-            echo json_encode(['success' => false, 'message' => _l('dev_portal_invalid_progress')]);
+        if (!$project) {
+            echo json_encode(['success' => false, 'message' => _l('project_not_found')]);
 
             return;
         }
 
-        $this->projects_model->update_assignment_field($id, 'progress', $progress);
+        $progress_changed = false;
+        $status_changed   = false;
+        $note_saved       = false;
 
-        echo json_encode(['success' => true]);
-    }
+        $posted_progress = $this->input->post('progress');
 
-    /**
-     * Change Status - reuses Projects_model::mark_as() directly (the
-     * exact method the native admin "Change Status" action calls),
-     * restricted to the 4 ids dev_portal_project_status_options()
-     * exposes. Cancelled (5) can never be reached through this action
-     * regardless of what a manipulated request posts - the posted value
-     * is validated against the allowed-id whitelist, not just hidden in
-     * the UI.
-     */
-    public function project_update_status($id)
-    {
-        $this->authorize_project_access($id, true);
+        if ($posted_progress !== null && $posted_progress !== '') {
+            if (!is_numeric($posted_progress) || !in_array((int) $posted_progress, get_progress_options(), true)) {
+                echo json_encode(['success' => false, 'message' => _l('dev_portal_invalid_progress')]);
 
-        $status_id = (int) $this->input->post('status_id');
+                return;
+            }
 
-        if (!array_key_exists($status_id, dev_portal_project_status_options())) {
-            echo json_encode(['success' => false, 'message' => _l('dev_portal_invalid_status')]);
+            $current_progress = (int) $this->projects_model->resolve_progress_value($project);
 
-            return;
+            if ((int) $posted_progress !== $current_progress) {
+                $this->projects_model->update_assignment_field($id, 'progress', (int) $posted_progress);
+                $progress_changed = true;
+            }
         }
 
-        $this->projects_model->mark_as([
-            'project_id' => $id,
-            'status_id'  => $status_id,
-        ]);
+        $posted_status = $this->input->post('status_id');
 
-        echo json_encode(['success' => true]);
-    }
+        if ($posted_status !== null && $posted_status !== '') {
+            $status_id = (int) $posted_status;
 
-    /**
-     * Add a shared project note from the Workspace. Writes into the SAME
-     * store as the admin side (Projects_model::save_note() ->
-     * tblproject_notes, which also refreshes the latest-note cache on
-     * tblprojects), so Admin immediately sees the newest note - one note
-     * system, both sides. Gated by authorize_project_access() (admin or a
-     * real tblproject_members row), never a posted staff id.
-     */
-    public function project_add_note($id)
-    {
-        $this->authorize_project_access($id, true);
+            if (!array_key_exists($status_id, dev_portal_project_status_options())) {
+                echo json_encode(['success' => false, 'message' => _l('dev_portal_invalid_status')]);
 
-        $note = trim((string) $this->input->post('note'));
+                return;
+            }
 
-        if ($note === '') {
-            echo json_encode(['success' => false, 'message' => _l('dev_portal_note_enter_note')]);
-
-            return;
+            if ($status_id !== (int) $project->status) {
+                $this->projects_model->mark_as([
+                    'project_id' => $id,
+                    'status_id'  => $status_id,
+                ]);
+                $status_changed = true;
+            }
         }
 
-        $inserted = $this->projects_model->save_note(['title' => null, 'content' => $note], $id);
+        $note      = trim((string) $this->input->post('note'));
+        $note_data = null;
+
+        if ($note !== '') {
+            $note_saved = (bool) $this->projects_model->save_note(['title' => null, 'content' => $note], $id);
+
+            if ($note_saved) {
+                $note_data = [
+                    'author'   => get_staff_full_name(),
+                    'when'     => _dt(date('Y-m-d H:i:s')),
+                    'when_ago' => time_ago(date('Y-m-d H:i:s')),
+                    'content'  => $note,
+                ];
+            }
+        }
 
         echo json_encode([
-            'success'  => (bool) $inserted,
-            'author'   => get_staff_full_name(),
-            'when'     => _dt(date('Y-m-d H:i:s')),
-            'when_ago' => time_ago(date('Y-m-d H:i:s')),
+            'success'          => true,
+            'progress_changed' => $progress_changed,
+            'status_changed'   => $status_changed,
+            'note_saved'       => $note_saved,
+            'note'             => $note_data,
         ]);
     }
 

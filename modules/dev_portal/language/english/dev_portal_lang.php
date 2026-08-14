@@ -80,6 +80,11 @@ $lang['dev_portal_workspace_note_history']       = 'Note History';
 $lang['dev_portal_workspace_no_notes']           = 'No notes yet.';
 $lang['dev_portal_workspace_note_by']            = 'by %s';
 $lang['dev_portal_note_enter_note']              = 'Please enter a note.';
+$lang['dev_portal_workspace_project_information'] = 'Project Information';
+$lang['dev_portal_workspace_save_changes']       = 'Save Changes';
+$lang['dev_portal_workspace_saving']             = 'Saving...';
+$lang['dev_portal_workspace_save_success']       = 'Changes saved successfully.';
+$lang['dev_portal_workspace_nothing_to_save']    = 'Nothing to save - change Progress, Status, or add a Note first.';
 
 $lang['dev_portal_status_pending']     = 'Pending';
 $lang['dev_portal_status_in_progress'] = 'In Progress';

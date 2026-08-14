@@ -20,6 +20,16 @@ return App_table::find('tasks')
             get_sql_select_task_asignees_full_names() . ' as assignees',
             '(SELECT GROUP_CONCAT(name SEPARATOR ",") FROM ' . db_prefix() . 'taggables JOIN ' . db_prefix() . 'tags ON ' . db_prefix() . 'taggables.tag_id = ' . db_prefix() . 'tags.id WHERE rel_id = ' . db_prefix() . 'tasks.id and rel_type="task" ORDER by tag_order ASC) as tags',
             'priority',
+            // Latest Note - no cache column exists on tbltasks for this
+            // (unlike tblprojects.status_description, which Project Notes
+            // reuses - see migration 385's docblock for why tbltasks has no
+            // equivalent spare field), so it's read live via a correlated
+            // subquery against tbltask_notes, the exact same "expression as
+            // a real, sortable/searchable $aColumns entry" convention the
+            // assignees column above already uses. Appended last (not
+            // interleaved) to match _table.php's header - see that file's
+            // own note on the Dashboard's hardcoded column indices.
+            '(SELECT content FROM ' . db_prefix() . 'task_notes WHERE task_id = ' . db_prefix() . 'tasks.id ORDER BY dateadded DESC, id DESC LIMIT 1) as latest_note',
         ];
 
         $sIndexColumn = 'id';
@@ -207,6 +217,10 @@ return App_table::find('tasks')
             }
 
             $row[] = $outputPriority;
+
+            // Latest Note (truncated + full text on tooltip) - same
+            // convention as the Admin Projects list's Note column.
+            $row[] = $aRow['latest_note'] ? '<span data-toggle="tooltip" data-title="' . e($aRow['latest_note']) . '">' . e(mb_strimwidth($aRow['latest_note'], 0, 50, '...')) . '</span>' : '-';
 
             // Custom fields add values
             foreach ($customFieldsColumns as $customFieldColumn) {

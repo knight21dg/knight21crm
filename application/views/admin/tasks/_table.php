@@ -14,6 +14,12 @@ $table_data = [
     _l('task_assigned'),
     _l('tags'),
     _l('tasks_list_priority'),
+    // Appended at the very end (not interleaved with the other core
+    // columns) so it never shifts an existing column's index - assets/js/
+    // main.js's own table-tasks init hardcodes .column(5)/.column(6) to
+    // hide Due Date/Assigned on the Dashboard's mini widget, and inserting
+    // anywhere earlier would silently break that.
+    _l('task_notes_latest_note'),
 ];
 
 array_unshift($table_data, [

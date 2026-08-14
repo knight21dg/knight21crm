@@ -81,8 +81,26 @@ class Leads extends AdminController
         }
 
         if ($this->input->post()) {
+            $data = $this->input->post();
+
+            // Knight21: backend enforcement to match the create-lead form's
+            // own hiding of these fields for a plain Telecaller
+            // (admin/leads/profile.php) - a hidden field is only a UI
+            // convenience, so a Telecaller submitting a manipulated
+            // 'assigned'/'department' value via a crafted POST must not be
+            // able to assign the new lead to someone else. Overrides
+            // (rather than rejects) so the normal create flow keeps
+            // working - the lead is simply created assigned to the
+            // Telecaller themselves, exactly what the hidden field would
+            // have defaulted to anyway. Scoped to creation only ($id ==
+            // '') - edit-time assignment changes are unaffected.
+            if ($id == '' && function_exists('follow_up_management_is_plain_telecaller') && follow_up_management_is_plain_telecaller()) {
+                $data['assigned'] = get_staff_user_id();
+                unset($data['department']);
+            }
+
             if ($id == '') {
-                $id      = $this->leads_model->add($this->input->post());
+                $id      = $this->leads_model->add($data);
                 $message = $id ? _l('added_successfully', _l('lead')) : '';
 
                 echo json_encode([

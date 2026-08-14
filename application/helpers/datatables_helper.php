@@ -13,10 +13,27 @@ defined('BASEPATH') or exit('No direct script access allowed');
  * @param array  $additionalSelect select additional fields
  * @param string $sGroupBy         group results
  * @param mixed  $searchAs
+ * @param string $defaultOrder     Optional raw "ORDER BY" fragment (no
+ *                                 "ORDER BY" prefix, e.g. "tblclients.userid
+ *                                 DESC"). When no client-requested order is
+ *                                 posted, used as the fallback order instead
+ *                                 of leaving the query with no ORDER BY at
+ *                                 all (previously undefined/inconsistent row
+ *                                 order - a genuine bug for any table, not
+ *                                 style preference). When an order IS
+ *                                 posted, appended as a deterministic
+ *                                 tie-breaker after it, so rows that tie on
+ *                                 the chosen sort column (e.g. many blank/
+ *                                 duplicate values) always resolve the same
+ *                                 way instead of MySQL's undefined order for
+ *                                 ties with no secondary key. Every existing
+ *                                 caller that doesn't pass this keeps the
+ *                                 exact previous behaviour (empty string is
+ *                                 a no-op both places below).
  *
  * @return array
  */
-function data_tables_init($aColumns, $sIndexColumn, $sTable, $join = [], $where = [], $additionalSelect = [], $sGroupBy = '', $searchAs = [])
+function data_tables_init($aColumns, $sIndexColumn, $sTable, $join = [], $where = [], $additionalSelect = [], $sGroupBy = '', $searchAs = [], $defaultOrder = '')
 {
     $CI   = &get_instance();
     $data = $CI->input->post();
@@ -98,6 +115,16 @@ function data_tables_init($aColumns, $sIndexColumn, $sTable, $join = [], $where 
 
         $sOrder = rtrim($sOrder, ', ');
 
+        // Deterministic tie-breaker: the client's requested column(s) are
+        // applied first exactly as before, then $defaultOrder (when the
+        // caller opted in) is appended so rows that tie on the requested
+        // column - e.g. many blank/duplicate values - always resolve in
+        // the same order instead of MySQL's undefined order for ties with
+        // no secondary sort key. See this function's docblock.
+        if ($sOrder !== '' && $defaultOrder !== '') {
+            $sOrder .= ', ' . $defaultOrder;
+        }
+
         if (
             get_option('save_last_order_for_tables') == '1'
             && $CI->input->post('last_order_identifier')
@@ -115,6 +142,12 @@ function data_tables_init($aColumns, $sIndexColumn, $sTable, $join = [], $where 
 
             update_staff_meta(get_staff_user_id(), $meta_name, json_encode($indexedOnly, JSON_NUMERIC_CHECK));
         }
+    } elseif ($defaultOrder !== '') {
+        // No order posted at all (e.g. a direct/non-DataTables caller of
+        // this same AJAX endpoint) - fall back to the caller's default
+        // instead of leaving the query with no ORDER BY, which previously
+        // left row order entirely up to MySQL/InnoDB's undefined behaviour.
+        $sOrder = 'ORDER BY ' . $defaultOrder;
     }
     /*
      * Filtering

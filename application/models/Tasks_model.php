@@ -758,6 +758,27 @@ class Tasks_model extends App_Model
 
         $data = hooks()->apply_filters('before_update_task', $data, $id);
 
+        // Employee assignment editing (Admin Edit Task form): same
+        // "assignees[]"/"followers[]" POST fields add() already reads -
+        // extracted and unset here too since they aren't real tbltasks
+        // columns and would otherwise reach the raw $this->db->update()
+        // call below and fail with an unknown-column error. Only
+        // touched when actually posted (isset, not just truthy) so
+        // every other existing caller of update() that never sends
+        // these fields (e.g. inline single-field updates) is completely
+        // unaffected - assignees/followers stay exactly as they were.
+        $assignees = null;
+        if (isset($data['assignees'])) {
+            $assignees = $data['assignees'];
+            unset($data['assignees']);
+        }
+
+        $followers = null;
+        if (isset($data['followers'])) {
+            $followers = $data['followers'];
+            unset($data['followers']);
+        }
+
         if (isset($data['custom_fields'])) {
             $custom_fields = $data['custom_fields'];
             if (handle_custom_fields_post($id, $custom_fields)) {
@@ -789,6 +810,55 @@ class Tasks_model extends App_Model
         $this->db->update(db_prefix() . 'tasks', $data);
         if ($this->db->affected_rows() > 0) {
             $affectedRows++;
+        }
+
+        // Apply the assignee/follower diff against the BEFORE snapshot
+        // ($original_task, already loaded above for the recurring-task
+        // check) - add_task_assignees()/remove_assignee() are the exact
+        // same model methods add() and the "view task" modal's live add/
+        // remove UI already use, so notifications, activity logging and
+        // running-timer cleanup all fire identically here. Skipped
+        // entirely for client-portal requests (assignee editing was
+        // never a client capability) and whenever the field wasn't
+        // posted at all (isset check above), never just because it's
+        // empty - posting an empty assignees[] is a deliberate
+        // "unassign everyone", not "leave assignees alone".
+        if ($clientRequest == false && $assignees !== null && isset($original_task)) {
+            foreach ($assignees as $staff_id) {
+                if (!in_array($staff_id, $original_task->assignees_ids)) {
+                    $this->add_task_assignees([
+                        'taskid'   => $id,
+                        'assignee' => $staff_id,
+                    ]);
+                    $affectedRows++;
+                }
+            }
+
+            foreach ($original_task->assignees as $existingAssignee) {
+                if (!in_array($existingAssignee['assigneeid'], $assignees)) {
+                    $this->remove_assignee($existingAssignee['id'], $id);
+                    $affectedRows++;
+                }
+            }
+        }
+
+        if ($clientRequest == false && $followers !== null && isset($original_task)) {
+            foreach ($followers as $staff_id) {
+                if (!in_array($staff_id, $original_task->followers_ids)) {
+                    $this->add_task_followers([
+                        'taskid'   => $id,
+                        'follower' => $staff_id,
+                    ]);
+                    $affectedRows++;
+                }
+            }
+
+            foreach ($original_task->followers as $existingFollower) {
+                if (!in_array($existingFollower['followerid'], $followers)) {
+                    $this->remove_follower($existingFollower['id'], $id);
+                    $affectedRows++;
+                }
+            }
         }
 
         if ($affectedRows > 0) {
@@ -1512,6 +1582,93 @@ class Tasks_model extends App_Model
         }
 
         return false;
+    }
+
+    /**
+     * Task Notes - same shared, multi-author notes pattern as Project
+     * Notes (Projects_model::get_staff_notes()/save_note()/update_note()/
+     * delete_note(), tblproject_notes), reading/writing tbltask_notes
+     * instead. Admin and the Development Portal both call these same
+     * methods, so a task's notes can never drift into two different
+     * stores. Unlike Project Notes there is no "latest note" cache
+     * column to refresh here - tbltasks has no spare field for it (see
+     * migration 385's docblock re: manager_note already being a
+     * different, Manager-Portal-owned concept), so callers that need the
+     * latest note read it live - $notes[0] from get_staff_notes() in a
+     * detail view, or a small correlated subquery in a list view,
+     * exactly like every other "latest X" list column already in this
+     * codebase (get_sql_select_task_asignees_full_names(), etc.).
+     */
+    public function get_staff_notes($task_id, $staff_id = null)
+    {
+        $this->db->join(db_prefix() . 'staff', db_prefix() . 'staff.staffid=' . db_prefix() . 'task_notes.staff_id');
+        $this->db->where('task_id', $task_id);
+        if ($staff_id) {
+            $this->db->where('staff_id', $staff_id);
+        }
+        $this->db->order_by('dateadded', 'desc');
+
+        return $this->db->get('task_notes')->result_array();
+    }
+
+    public function get_staff_note($note_id, $staff_id = null)
+    {
+        $this->db->where('id', $note_id);
+
+        if ($staff_id) {
+            $this->db->where('staff_id', $staff_id);
+        }
+
+        return $this->db->get('task_notes')->row();
+    }
+
+    public function save_note($data, $task_id)
+    {
+        $insert_data = [
+            'staff_id'  => get_staff_user_id(),
+            'title'     => $data['title'],
+            'content'   => $data['content'],
+            'task_id'   => $task_id,
+            'dateadded' => date('Y-m-d H:i:s'),
+        ];
+
+        $this->db->insert('task_notes', $insert_data);
+        $insert_id = $this->db->insert_id();
+
+        return (bool) ($insert_id);
+    }
+
+    public function update_note($data, $note_id)
+    {
+        $note = $this->get_staff_note($note_id);
+
+        if (! $note || $note->staff_id != get_staff_user_id()) {
+            return false;
+        }
+
+        $update_data = [
+            'title'   => $data['title'],
+            'content' => $data['content'],
+        ];
+
+        $this->db->where('id', $note_id);
+        $this->db->update('task_notes', $update_data);
+
+        return (bool) ($this->db->affected_rows() > 0);
+    }
+
+    public function delete_note($note_id)
+    {
+        $note = $this->get_staff_note($note_id);
+
+        if (! $note || $note->staff_id != get_staff_user_id()) {
+            return false;
+        }
+
+        $this->db->where('id', $note_id);
+        $this->db->delete('task_notes');
+
+        return (bool) ($this->db->affected_rows() > 0);
     }
 
     /**

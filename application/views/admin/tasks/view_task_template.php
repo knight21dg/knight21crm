@@ -442,6 +442,46 @@ foreach ($task->timesheets as $timesheet) { ?>
         <div class="clearfix"></div>
         <hr />
 
+        <?php
+        // Task Notes - shared with the Development Portal (tbltask_notes),
+        // same "Description = original instructions, Notes = ongoing
+        // updates/communication" separation and same panel shape as the
+        // Admin Project edit page's Notes panel
+        // (application/views/admin/projects/project.php), just posting to
+        // tasks/add_task_note instead of projects/add_project_note.
+        ?>
+        <h4 class="th tw-font-semibold tw-text-base tw-mb-1"><?= _l('task_notes'); ?></h4>
+        <div class="form-group" id="task-notes-panel">
+            <?php $latest_task_note = $task_notes[0] ?? null; ?>
+            <div class="tw-mb-2">
+                <div class="text-muted tw-text-xs"><?= _l('task_notes_latest_note'); ?></div>
+                <div id="task-panel-latest-note-text"><?= $latest_task_note ? e($latest_task_note['content']) : '<span class="text-muted">-</span>'; ?></div>
+                <div class="text-muted tw-text-xs" id="task-panel-latest-note-meta">
+                    <?= $latest_task_note ? _l('task_notes_by', e(trim($latest_task_note['firstname'] . ' ' . $latest_task_note['lastname']))) . ' &middot; ' . e(time_ago($latest_task_note['dateadded'])) : ''; ?>
+                </div>
+            </div>
+            <?php if ($task->status != Tasks_model::STATUS_COMPLETE && ($task->current_user_is_assigned || staff_can('edit', 'tasks') || $task->current_user_is_creator)) { ?>
+            <textarea id="task-note-input" class="form-control" rows="2" placeholder="<?= _l('task_notes_placeholder'); ?>"></textarea>
+            <button type="button" class="btn btn-primary btn-sm tw-mt-2" onclick="task_single_add_note();"><?= _l('task_notes_add'); ?></button>
+            <?php } ?>
+            <?php if (!empty($task_notes)) { ?>
+            <div class="tw-mt-3">
+                <div class="text-muted tw-text-xs"><?= _l('task_notes_history'); ?></div>
+                <ul class="list-unstyled tw-mb-0" id="task-notes-history">
+                    <?php foreach ($task_notes as $index => $note) { ?>
+                    <li class="tw-mb-2 <?= $index === 0 ? 'tw-font-medium' : 'text-muted'; ?>">
+                        <span class="text-muted tw-text-xs"><?= e(_dt($note['dateadded'])); ?></span>
+                        <?= _l('task_notes_by', e(trim($note['firstname'] . ' ' . $note['lastname']))); ?>
+                        <div><?= nl2br(e($note['content'])); ?></div>
+                    </li>
+                    <?php } ?>
+                </ul>
+            </div>
+            <?php } ?>
+        </div>
+        <div class="clearfix"></div>
+        <hr />
+
         <div class="tw-flex tw-justify-between tw-items-center">
             <h4 class="chk-heading tw-my-0 tw-font-semibold tw-text-base">
                 <?= _l('task_checklist_items'); ?>
@@ -1259,6 +1299,60 @@ echo $_followers;
 </div>
 </div>
 <script>
+    // Task Notes - mirrors application/views/admin/projects/project.php's
+    // admin_project_add_note() exactly, posting to tasks/add_task_note
+    // instead. This script block re-runs every time the modal fragment is
+    // (re)loaded via AJAX, so TASK_NOTE_ID is always the currently-open
+    // task, never stale.
+    var TASK_NOTE_ID = <?= (int) $task->id; ?>;
+
+    function taskNoteEscapeHtml(value) {
+        return $('<div>').text(String(value)).html();
+    }
+
+    function task_single_add_note() {
+        var $input = $('#task-note-input');
+        var note = $.trim($input.val());
+        if (note === '') {
+            alert_float('danger', <?= json_encode(_l('task_notes_enter_note')); ?>);
+            return;
+        }
+        $.post(admin_url + 'tasks/add_task_note/' + TASK_NOTE_ID, {
+            note: note
+        }).done(function(response) {
+            var data = typeof response === 'string' ? JSON.parse(response) : response;
+            if (!data.success) {
+                alert_float('danger', data.message || <?= json_encode(_l('something_went_wrong')); ?>);
+                return;
+            }
+            // _l($line, $label) always sprintf()s $label into the line - even
+            // the default '' - so a plain _l('task_notes_by') here would
+            // consume the %s server-side into "by " before this script ever
+            // runs, leaving nothing for .replace('%s', ...) to find. Passing
+            // the literal string '%s' as $label makes sprintf('by %s', '%s')
+            // put the placeholder right back, so it survives for the
+            // client-side substitution below (the author name isn't known
+            // until the AJAX response comes back).
+            var by = <?= json_encode(_l('task_notes_by', '%s')); ?>.replace('%s', taskNoteEscapeHtml(data.author));
+            $('#task-panel-latest-note-text').text(note);
+            $('#task-panel-latest-note-meta').html(by + ' &middot; ' + taskNoteEscapeHtml(data.when_ago));
+            var $history = $('#task-notes-history');
+            if ($history.length === 0) {
+                $('#task-notes-panel').append(
+                    '<div class="tw-mt-3"><div class="text-muted tw-text-xs">' + <?= json_encode(_l('task_notes_history')); ?> + '</div>' +
+                    '<ul class="list-unstyled tw-mb-0" id="task-notes-history"></ul></div>');
+                $history = $('#task-notes-history');
+            }
+            $history.find('li').removeClass('tw-font-medium').addClass('text-muted');
+            $history.prepend(
+                '<li class="tw-mb-2 tw-font-medium"><span class="text-muted tw-text-xs">' +
+                taskNoteEscapeHtml(data.when) + '</span> ' + by + '<br><div>' +
+                taskNoteEscapeHtml(note).replace(/\n/g, '<br>') + '</div></li>');
+            $input.val('');
+            alert_float('success', <?= json_encode(_l('added_successfully', _l('task_note'))); ?>);
+        });
+    }
+
     if (typeof(commonTaskPopoverMenuOptions) == 'undefined') {
         var commonTaskPopoverMenuOptions = {
             html: true,

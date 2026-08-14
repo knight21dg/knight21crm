@@ -137,12 +137,9 @@ class Dev_portal_model extends App_Model
                 'type' => 'task',
                 'name' => $task['name'],
                 'date' => $task['duedate'],
-                // My Tasks has no separate Task Details page (tasks open in
-                // Perfex's native task modal, see Dev_portal::my_tasks_table()'s
-                // row rendering) - task_id here is read by my_tasks.php on
-                // load to auto-open that same modal, so this still lands on
-                // the specific task, not just the list.
-                'url'  => admin_url('dev_portal/my_tasks') . '?task_id=' . $task['id'],
+                // Links straight to the Task Workspace (own page - see
+                // Dev_portal::task_workspace()), not the task list.
+                'url'  => admin_url('dev_portal/task_workspace/' . $task['id']),
             ];
         }
 

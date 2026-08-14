@@ -402,6 +402,23 @@ echo render_leads_status_select($statuses, $selected, 'lead_add_edit_status');
             <div class="col-md-3">
                 <?= render_leads_source_select($sources, (isset($lead) ? $lead->source : get_option('leads_default_source')), 'lead_add_edit_source'); ?>
             </div>
+            <?php
+            // Knight21: a plain Telecaller creating a new lead must not see
+            // (or be able to submit) the Assigned Employee / Business
+            // Department fields - they always own leads they create
+            // themselves; only Admin and staff with elevated leads/
+            // follow-up-management permission may assign a lead to someone
+            // else. Scoped to the CREATE form only (!isset($lead)) - this
+            // exact block is reused for other contexts too and must stay
+            // untouched there. Reuses the same is-a-plain-Telecaller check
+            // already established throughout Leads.php/Leads_model.php
+            // (function_exists()-guarded since this module can be
+            // disabled), not a new permission concept.
+            $hide_assignment_fields = !isset($lead)
+                && function_exists('follow_up_management_is_plain_telecaller')
+                && follow_up_management_is_plain_telecaller();
+            ?>
+            <?php if (!$hide_assignment_fields) { ?>
             <div class="col-md-3">
                 <?php
                $assigned_attrs = [];
@@ -429,6 +446,7 @@ echo render_select('assigned', $members, ['staffid', ['firstname', 'lastname']],
                 ?>
             </div>
             <div class="clearfix"></div>
+            <?php } ?>
             <hr class="mtop5 mbot10" />
             <div class="col-md-12">
                 <div class="form-group no-mbot" id="inputTagsWrapper">

@@ -384,7 +384,19 @@
                                 </div>
                             </div>
                         </div>
-                        <?php if (!isset($task)) { ?>
+                        <?php
+                  // Employee assignment, editable on BOTH create and edit -
+                  // previously this whole block only rendered when
+                  // !isset($task) (create-only), so re-assigning a task's
+                  // employee had no UI on the Edit Task form at all. On
+                  // edit, each option is pre-selected from the task's own
+                  // current assignees/followers ($task->assignees_ids /
+                  // followers_ids, already computed by Tasks_model::get())
+                  // instead of the create-only "auto assign current
+                  // member" option - Tasks_model::update() now diffs the
+                  // posted assignees[]/followers[] against that same
+                  // before-snapshot and adds/removes only what changed.
+                  ?>
                         <div class="row">
                             <div class="col-md-6">
                             <div class="form-group select-placeholder>">
@@ -393,7 +405,12 @@
                                         data-none-selected-text="<?php echo _l('dropdown_non_selected_tex'); ?>"
                                         multiple data-live-search="true">
                                         <?php foreach ($members as $member) { ?>
-                                        <option value="<?php echo e($member['staffid']); ?>" <?= (get_option('new_task_auto_assign_current_member') == '1') && get_staff_user_id() == $member['staffid'] ? 'selected' : ''; ?>>
+                                        <?php
+                                $isSelected = isset($task)
+                                    ? in_array($member['staffid'], $task->assignees_ids)
+                                    : ((get_option('new_task_auto_assign_current_member') == '1') && get_staff_user_id() == $member['staffid']);
+                            ?>
+                                        <option value="<?php echo e($member['staffid']); ?>" <?= $isSelected ? 'selected' : ''; ?>>
                                             <?php echo e($member['firstname'] . ' ' . $member['lastname']); ?>
                                         </option>
                                         <?php } ?>
@@ -402,12 +419,13 @@
                             </div>
                             <div class="col-md-6">
                                 <?php
-                     $follower = (get_option('new_task_auto_follower_current_member') == '1') ? [get_staff_user_id()] : '';
+                     $follower = isset($task)
+                         ? $task->followers_ids
+                         : ((get_option('new_task_auto_follower_current_member') == '1') ? [get_staff_user_id()] : '');
                      echo render_select('followers[]', $members, ['staffid', ['firstname', 'lastname']], 'task_single_followers', $follower, ['multiple' => true], [], '', '', false);
                      ?>
                             </div>
                         </div>
-                        <?php } ?>
 
                         <?php
                   if (isset($task)

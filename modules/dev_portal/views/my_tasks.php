@@ -41,6 +41,7 @@
                             _l('dev_portal_column_due_date'),
                             _l('dev_portal_column_estimated_hours'),
                             _l('dev_portal_column_hours_worked'),
+                            _l('dev_portal_column_note'),
                         ], 'dev-portal-my-tasks'); ?>
                     </div>
                 </div>
@@ -62,21 +63,6 @@
         // params from its own request rather than trusting anything passed
         // from PHP into this script.
         initDataTable('.table-dev-portal-my-tasks', admin_url + 'dev_portal/my_tasks_table' + window.location.search, [6], [6], {}, [4, 'asc']);
-
-        // Upcoming Deadlines links here with ?task_id=<id> for a specific
-        // task (see Dev_portal_model::get_upcoming_deadlines()) - open the
-        // same native task modal the Task column link itself uses, once
-        // the underlying task actually exists in this staff member's own
-        // (already server-side scoped) task list.
-        var urlParams = new URLSearchParams(window.location.search);
-        var deepLinkTaskId = parseInt(urlParams.get('task_id'), 10);
-        if (deepLinkTaskId) {
-            $('.table-dev-portal-my-tasks').on('draw.dt', function() {
-                if ($('#dev_portal_task_' + deepLinkTaskId).length) {
-                    init_task_modal(deepLinkTaskId);
-                }
-            });
-        }
     });
 </script>
 </body>

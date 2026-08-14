@@ -69,7 +69,7 @@ $config['migration_auto_latest'] = false;
 | be upgraded / downgraded to.
 |
 */
-$config['migration_version'] = 384; // 383: optional per-project Company column. 384: seed legacy status_description into shared project_notes
+$config['migration_version'] = 385; // 383: optional per-project Company column. 384: seed legacy status_description into shared project_notes. 385: tbltask_notes (shared Task Notes)
 
 /*
 |--------------------------------------------------------------------------

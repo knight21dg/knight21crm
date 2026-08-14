@@ -117,7 +117,20 @@ return App_table::find('clients')
             db_prefix() . 'clients.zip as zip',
             'registration_confirmed',
             'vat',
-        ]);
+        ], '', [],
+            // Deterministic ordering fix: the default sort (see manage.php's
+            // initDataTable() call) is by Date Created, but that column -
+            // and any other column a staff member sorts by - can have many
+            // ties (blank/duplicate values), which MySQL/InnoDB resolves in
+            // an undefined, effectively random-looking order with no
+            // secondary sort key. userid (the primary key - always unique,
+            // never null) appended here as a tie-breaker guarantees the
+            // exact same row order every time for identical requests,
+            // across pagination, search, filtering and AJAX reloads alike -
+            // see data_tables_init()'s own docblock for how this parameter
+            // is used.
+            db_prefix() . 'clients.userid DESC'
+        );
 
         $output  = $result['output'];
         $rResult = $result['rResult'];

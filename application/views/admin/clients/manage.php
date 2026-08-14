@@ -322,7 +322,16 @@ $table_data = hooks()->apply_filters('customers_table_columns', $table_data);
                 converted_date_from: '#customer-filter-converted-date-from',
                 converted_date_to: '#customer-filter-converted-date-to'
             },
-            <?= hooks()->apply_filters('customers_table_default_order', json_encode([2, 'asc'])); ?>
+            // Column 17 = Date Created (see application/views/admin/tables/
+            // clients.php's own $aColumns - both arrays share the exact same
+            // order). Was column 2 (Company) ascending - a column with many
+            // blank/duplicate values, which is why the list order looked
+            // inconsistent (MySQL has no defined order for ties on that
+            // column with no secondary sort key - now fixed at the query
+            // level too, see clients.php's data_tables_init() call). "Newest
+            // customer first" is a far more sensible default for this list
+            // regardless, and this column is never null/blank.
+            <?= hooks()->apply_filters('customers_table_default_order', json_encode([17, 'desc'])); ?>
         );
 
         // Conversion Report filters (Converted From + date range) - reuses

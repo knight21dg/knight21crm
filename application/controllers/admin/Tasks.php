@@ -154,6 +154,63 @@ class Tasks extends AdminController
         }
     }
 
+    /**
+     * Add a shared Task Note - writes into the SAME store the
+     * Development Portal's task_add_note() action writes into
+     * (Tasks_model::save_note() -> tbltask_notes), mirrors
+     * Projects::add_project_note() exactly. Gate is intentionally
+     * broader than staff_can('edit', 'tasks') alone (which would shut
+     * out a plain assignee with no elevated task capability) - full
+     * task-edit capability, the task's creator, or an actual assignee
+     * can all note on it, matching "Staff assigned to the task can add
+     * a note" while Admin/task-managers keep unrestricted access. The
+     * task itself is fetched through the same get_tasks_where_string()
+     * IDOR guard get_task_data() already uses, so a non-privileged
+     * staff member can't note on (or even detect the existence of) a
+     * task they're not assigned to, follow, or didn't create merely by
+     * guessing its id.
+     *
+     * @param int $task_id
+     */
+    public function add_task_note($task_id)
+    {
+        if (!$this->input->is_ajax_request()) {
+            show_404();
+        }
+
+        $tasks_where = [];
+        if (staff_cant('view', 'tasks')) {
+            $tasks_where = get_tasks_where_string(false);
+        }
+
+        $task = $this->tasks_model->get($task_id, $tasks_where);
+
+        if (!$task) {
+            ajax_access_denied();
+        }
+
+        if (staff_cant('edit', 'tasks') && !$task->current_user_is_assigned && !$task->current_user_is_creator) {
+            ajax_access_denied();
+        }
+
+        $note = trim((string) $this->input->post('note'));
+
+        if ($note === '') {
+            echo json_encode(['success' => false, 'message' => _l('task_notes_enter_note')]);
+
+            return;
+        }
+
+        $inserted = $this->tasks_model->save_note(['title' => null, 'content' => $note], $task_id);
+
+        echo json_encode([
+            'success'  => (bool) $inserted,
+            'author'   => get_staff_full_name(),
+            'when'     => _dt(date('Y-m-d H:i:s')),
+            'when_ago' => time_ago(date('Y-m-d H:i:s')),
+        ]);
+    }
+
     public function detailed_overview()
     {
         $overview = [];
@@ -452,6 +509,13 @@ class Tasks extends AdminController
         $data['staff_reminders'] = $data['task_staff_members'];
 
         $data['hide_completed_items'] = get_staff_meta(get_staff_user_id(), 'task-hide-completed-items-' . $taskid);
+
+        // Shared Task Notes (newest first) - same tbltask_notes store the
+        // Admin Tasks list's Latest Note column and the Development
+        // Portal's Task Workspace both read (Tasks_model::get_staff_notes()
+        // without a staff filter, so every note is visible, not just the
+        // viewer's own - mirrors Projects_model::get_staff_notes() usage).
+        $data['task_notes'] = $this->tasks_model->get_staff_notes($taskid);
 
         $data['project_deadline'] = null;
         if ($task->rel_type == 'project') {
