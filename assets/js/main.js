@@ -3158,6 +3158,18 @@ function _init_tasks_billable_select(tasks, project_id) {
 
 // Fix for height on the wrapper
 function mainWrapperHeightFix() {
+  // Customers/Projects/Leads(table view) now size #wrapper/.content
+  // entirely via CSS - a bounded, flexbox "fill the remaining viewport
+  // height" chain (assets/css/style.css, "Bounded, independently-
+  // scrollable table region") that also gives the table's own row area
+  // its own scrollbar. Setting an inline min-height/height below (the
+  // legacy behavior for every other admin page) would win over that CSS
+  // by inline-style specificity and reintroduce page-level scroll past
+  // the viewport, so it's skipped on exactly these pages.
+  var isBoundedScrollPage =
+    $("body").is(".clients, .projects") ||
+    ($("body").hasClass("leads") && $(".content").hasClass("leads-table-view"));
+
   // Get and set current height
   var headerH = 57;
   var navigationH = side_bar.height();
@@ -3166,7 +3178,16 @@ function mainWrapperHeightFix() {
     "min-height",
     $(document).outerHeight(true) - headerH * 2 + "px"
   );
-  $("#menu").css("min-height", $(document).outerHeight(true) + "px");
+  // #menu's height is now fully CSS-driven (position: fixed; top: var(--admin-navbar-height); bottom: 0;
+  // in assets/css/style.css), so it always matches the viewport height minus
+  // the navbar, with its own internal scrollbar when the menu overflows.
+  // Forcing an inline min-height here to match the full DOCUMENT height
+  // (previous behavior) would fight that fixed sizing and make the
+  // sidebar taller than the viewport again.
+
+  if (isBoundedScrollPage) {
+    return;
+  }
 
   content_wrapper.css(
     "min-height",

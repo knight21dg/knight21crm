@@ -1,7 +1,14 @@
 <?php defined('BASEPATH') or exit('No direct script access allowed'); ?>
 <?php init_head(); ?>
 <div id="wrapper">
-    <div class="content" id="vueApp">
+    <?php
+    // leads-table-view: a CSS-only hook (assets/css/style.css, "Bounded,
+    // independently-scrollable table region") that scopes the bounded
+    // table-scroll-region layout to the table view specifically, so
+    // Kanban's own existing layout/scroll (never gets this class) is
+    // completely untouched.
+    ?>
+    <div class="content<?= $isKanBan ? '' : ' leads-table-view'; ?>" id="vueApp">
         <div class="row">
             <div class="col-md-12">
                 <div

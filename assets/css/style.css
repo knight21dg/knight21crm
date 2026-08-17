@@ -23,6 +23,10 @@
   --navbar-text: #6b7280;
   --navbar-active-bg: #f7f8fa;
   --navbar-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  /* Single source of truth for the fixed layout: #header's own height
+     below, the sidebar's top offset, #wrapper's top margin, and the
+     sticky table-header offset all reference this one value. */
+  --admin-navbar-height: 57px;
 
   --body-bg: #f4f4f5;
   --wrapper-bg: #f4f4f5;
@@ -140,6 +144,23 @@ html {
   margin: 0;
   padding: 0;
   height: 100%;
+}
+
+/* #wrapper (below) carries a margin-top equal to the fixed header's
+   height, to clear it now that it's out of normal document flow.
+   #wrapper is body's first in-flow child, and neither body nor html has
+   any padding/border/BFC-establishing property of its own, so that
+   margin-top collapses straight through body into html's own top edge
+   (a standard CSS margin-collapsing behavior, confirmed empirically to
+   require the overflow fix on html specifically - body's own overflow
+   alone does not stop it in this document) - harmless visually, but it
+   also adds that same amount of extra, empty scrollable space at the
+   very bottom of the document. overflow: auto on html establishes a
+   block formatting context that stops the collapse, with no visible/
+   functional change to how the page scrolls (the document remains the
+   effective scroll container either way). */
+html {
+  overflow: auto;
 }
 
 body>* {
@@ -502,7 +523,14 @@ body.page-small.show-sidebar #wrapper {
   height: 57px;
   margin: 0;
   padding: 0;
-  position: relative;
+  /* Fixed to the viewport so it never scrolls away with page content -
+     see #wrapper's margin-top and #menu.sidebar's top offset below,
+     both of which compensate for #header no longer taking up space in
+     normal document flow. */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
   z-index: 99;
   box-shadow: var(--navbar-shadow);
 }
@@ -647,6 +675,23 @@ body.page-small #header {
   top: 0;
 }
 
+/* Fixed below the fixed header, independently scrollable when the menu
+   is taller than the available space - scoped to #menu specifically
+   (not the bare .sidebar class above) because .sidebar is also shared
+   by #setup-menu-wrapper (the unrelated Setup customizer flyout panel),
+   which must keep its original absolute positioning/behavior untouched.
+   The existing show/hide-sidebar toggle rules (margin-left, elsewhere
+   in this file) keep working unchanged - they offset a fixed element
+   exactly the same way they previously offset an absolute one. */
+#menu.sidebar {
+  position: fixed;
+  top: var(--admin-navbar-height);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  z-index: 90;
+}
+
 [dir="rtl"] .sidebar {
   border-right: 0;
   border-left: 1px solid var(--sidebar-border);
@@ -786,7 +831,21 @@ body.page-small #header {
 
 #wrapper {
   margin: 0 0 0 230px;
-  padding: 0;
+  /* Compensates for #header now being position:fixed (removed from
+     normal document flow) - previously #wrapper was simply pushed down
+     by #header's own height in normal flow. padding-top (not
+     margin-top) deliberately: #wrapper is body's first in-flow child,
+     and a top MARGIN here collapses straight through body into html's
+     own top edge (confirmed empirically), silently adding that same
+     amount of extra, empty scrollable space at the bottom of every
+     admin page. Padding never collapses, so it reproduces the exact
+     same visual offset with none of that side effect - box-sizing is
+     border-box site-wide, so this padding is already accounted for
+     wherever min-height/height is set below. */
+  padding-top: var(--admin-navbar-height);
+  padding-left: 0;
+  padding-right: 0;
+  padding-bottom: 0;
   background: var(--wrapper-bg);
   position: relative;
   min-height: 100%;
@@ -5266,6 +5325,220 @@ body.modal-open .panel_s:hover {
 .table thead {
   border-radius: var(--table-radius);
 }
+
+/* Sticky table headers - Customers, Projects and Leads only. Background
+   is already opaque via ".table > thead > tr > th" above, so rows never
+   show through. !important on position is required to outrank
+   DataTables' own "table.dataTable thead .sorting { position: relative }"
+   rule (higher selector specificity), which otherwise wins and defeats
+   sticky on sortable columns.
+
+   top: 0 (not the navbar height) is deliberate: a table wrapper with
+   horizontal scroll (.table-responsive's own "overflow-x: auto", needed
+   to preserve horizontal scrolling) unavoidably becomes the nearest
+   "scrolling ancestor" for any position:sticky descendant, per the CSS
+   Overflow spec - so a sticky header inside it can only ever stick
+   relative to THAT wrapper, never to the page/viewport, no matter what
+   top offset is used. Rather than fight that (there is no pure-CSS way
+   around it while keeping horizontal scroll on the same element), the
+   block below deliberately leans into it: .table-responsive is turned
+   into the real, bounded, independently-scrolling region (see the
+   "bounded, independently-scrollable table region" block further down),
+   so "stick to the top of the nearest scrolling ancestor" is exactly
+   the wanted behavior. */
+.table-clients thead th,
+.table-projects thead th,
+.table-leads thead th {
+  position: sticky !important;
+  top: 0;
+  z-index: 2;
+}
+
+/* ============================================================
+   Bounded, independently-scrollable table region - Customers,
+   Projects and Leads (table view) only.
+
+   Everything above the table (stat cards, filter/search controls,
+   buttons, DataTables' own length/search row) keeps its natural
+   height; only the table's own row area (.table-responsive)
+   consumes whatever is left of the viewport and scrolls
+   internally on both axes - vertical for rows, horizontal
+   unchanged - with its header sticky at the top of that box (see
+   the sticky-header rule above). No JS/resize listener involved:
+   every ancestor between .content and .table-responsive passes
+   its remaining space down to the next via flex-grow +
+   min-height: 0, so the available height is exact on any
+   resolution rather than a guessed pixel value. Scoped per page
+   via the body class CI already renders (body.clients/
+   body.projects/body.leads) plus, for Leads, a
+   ".leads-table-view" class added only when the table (not
+   Kanban) view is active - see manage_leads.php - so Kanban's own
+   existing layout/scroll is completely untouched by any of this.
+   ============================================================ */
+/* #wrapper's pre-existing "min-height: 100%" (further up in this file)
+   is a cosmetic "look at least one viewport tall on short pages" rule
+   that resolves against the body/html height chain to exactly one
+   viewport height, REGARDLESS of #wrapper's own margin-top - once
+   #wrapper carries the fixed-header margin-top (see #wrapper's own
+   rule), that combination pushes #wrapper's bottom edge margin-top
+   pixels past the viewport, reintroducing page-level scroll on these
+   3 pages even though .content below is already correctly bounded.
+   Neutralized here (scoped, not touching #wrapper anywhere else) since
+   .content's own bounded height already provides the "fill the
+   viewport" behavior these 3 pages need. */
+body.clients #wrapper,
+body.projects #wrapper,
+body.leads #wrapper {
+  min-height: 0;
+}
+
+body.clients .content,
+body.projects .content,
+body.leads .content.leads-table-view {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--admin-navbar-height));
+  overflow: hidden;
+}
+
+/* Level 2: the top-level Bootstrap .row (Projects has an extra #vueApp
+   Vue-mount div between .content and .row - passed through too). */
+body.clients .content > .row,
+body.projects .content > #vueApp,
+body.leads .content.leads-table-view > .row {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+body.projects .content > #vueApp > .row {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Level 3: the top-level Bootstrap .col-md-12. */
+body.clients .content > .row > .col-md-12,
+body.projects .content > #vueApp > .row > .col-md-12,
+body.leads .content.leads-table-view > .row > .col-md-12 {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Everything above the table panel (stat cards, KPI cards, filter/
+   button rows, the Leads status summary + _buttons block) keeps its
+   own natural height - only .panel_s (the table's panel) grows/
+   shrinks to fill what's left. */
+body.clients .content > .row > .col-md-12 > :not(.panel_s),
+body.projects .content > #vueApp > .row > .col-md-12 > :not(.panel_s),
+body.leads .content.leads-table-view > .row > .col-md-12 > :not(.panel_s) {
+  flex-shrink: 0;
+}
+
+/* Level 4-5: the table's own panel (.panel_s > .panel-body). */
+body.clients .content > .row > .col-md-12 > .panel_s,
+body.projects .content > #vueApp > .row > .col-md-12 > .panel_s,
+body.leads .content.leads-table-view > .row > .col-md-12 > .panel_s {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+body.clients .panel_s > .panel-body,
+body.projects .panel_s > .panel-body,
+body.leads .content.leads-table-view .panel_s > .panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Customers/Projects: .panel-body's only real content is
+   .panel-table-full (the hidden-by-default bulk-actions button/modal
+   sibling keeps its natural size). Leads: .panel-body's child is
+   .tab-content instead (which then contains .row#leads-table in table
+   view - Kanban's .kan-ban-tab sibling is never reached, since Kanban
+   mode never gets the .leads-table-view class these selectors require). */
+body.clients .panel-body > :not(.panel-table-full),
+body.projects .panel-body > :not(.panel-table-full),
+body.leads .content.leads-table-view .panel-body > :not(.tab-content) {
+  flex-shrink: 0;
+}
+body.clients .panel-body > .panel-table-full,
+body.projects .panel-body > .panel-table-full,
+body.leads .content.leads-table-view .panel-body > .tab-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Leads only: .tab-content > .row#leads-table > .col-md-12 > .panel-table-full. */
+body.leads .content.leads-table-view .tab-content > .row {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+body.leads .content.leads-table-view .tab-content > .row > .col-md-12 {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+body.leads .content.leads-table-view .tab-content > .row > .col-md-12 > :not(.panel-table-full) {
+  flex-shrink: 0;
+}
+body.leads .content.leads-table-view .tab-content > .row > .col-md-12 > .panel-table-full {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* render_datatable() (application/helpers/datatables_helper.php) wraps
+   its <table> in an extra, class-less "IE fix" <div> - '<div class="'
+   . $IEfix . '">' with $IEfix == '' outside IE - so .dataTables_wrapper
+   (added later, when DataTables JS initializes) ends up a GRANDchild of
+   .panel-table-full, not a direct child. Passed through here via ">
+   div" (panel-table-full's one and only child, unambiguous). */
+body.clients .panel-table-full > div,
+body.projects .panel-table-full > div,
+body.leads .content.leads-table-view .panel-table-full > div {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Final level: .dataTables_wrapper itself (DataTables' own search/
+   length row and info/pagination row keep natural height; only
+   .table-responsive - the actual rows - becomes the bounded,
+   independently-scrolling box). */
+body.clients .dataTables_wrapper,
+body.projects .dataTables_wrapper,
+body.leads .content.leads-table-view .dataTables_wrapper {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+body.clients .dataTables_wrapper > :not(.table-responsive),
+body.projects .dataTables_wrapper > :not(.table-responsive),
+body.leads .content.leads-table-view .dataTables_wrapper > :not(.table-responsive) {
+  flex-shrink: 0;
+}
+body.clients .table-responsive,
+body.projects .table-responsive,
+body.leads .content.leads-table-view .table-responsive {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
 .dataTable {
   border-collapse: separate !important;
   border-spacing: 0 !important;
