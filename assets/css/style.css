@@ -791,7 +791,23 @@ body.page-small #header {
 #setup-menu-wrapper {
   overflow: auto;
   display: none;
-  z-index: 9;
+  /* Was 9 - harmless before #header/#menu had explicit z-index (their
+     implicit stacking order happened to land below this panel), but
+     #header is z-index:99 and #menu is now z-index:90 (see their own
+     rules), both fixed-position. At 9, this panel still opens
+     (.display-block toggles display:block correctly) but renders
+     BEHIND both, making Setup appear completely unresponsive - nothing
+     visible happens on click. Raised to 95 - above #menu (90), so the
+     panel is visible above the fixed sidebar again like before it
+     became position:fixed, but still below #header (99) deliberately:
+     this panel's own background comes from the shared .sidebar rule
+     and covers its own top 57px (its actual heading/items start below
+     that via the inner <ul>'s existing margin-top, see
+     admin/includes/setup_menu.php), so going above the header too
+     would paint over the top-left corner of the fixed navbar (menu
+     toggle, logo) while Setup is open - keeping it under 99 preserves
+     that same header-on-top relationship this panel always had. */
+  z-index: 95;
   min-height: 100%;
 }
 
@@ -5348,7 +5364,8 @@ body.modal-open .panel_s:hover {
    the wanted behavior. */
 .table-clients thead th,
 .table-projects thead th,
-.table-leads thead th {
+.table-leads thead th,
+.table-tasks thead th {
   position: sticky !important;
   top: 0;
   z-index: 2;
@@ -5356,7 +5373,7 @@ body.modal-open .panel_s:hover {
 
 /* ============================================================
    Bounded, independently-scrollable table region - Customers,
-   Projects and Leads (table view) only.
+   Projects, Leads and Tasks (table view) only.
 
    Everything above the table (stat cards, filter/search controls,
    buttons, DataTables' own length/search row) keeps its natural
@@ -5370,11 +5387,12 @@ body.modal-open .panel_s:hover {
    min-height: 0, so the available height is exact on any
    resolution rather than a guessed pixel value. Scoped per page
    via the body class CI already renders (body.clients/
-   body.projects/body.leads) plus, for Leads, a
-   ".leads-table-view" class added only when the table (not
-   Kanban) view is active - see manage_leads.php - so Kanban's own
-   existing layout/scroll is completely untouched by any of this.
-   ============================================================ */
+   body.projects/body.leads/body.tasks) plus, for Leads and Tasks
+   (both of which have an existing Kanban toggle sharing the same
+   .content), a "-table-view" class added only when the table (not
+   Kanban) view is active - see manage_leads.php/manage.php - so
+   Kanban's own existing layout/scroll is completely untouched by
+   any of this. */
 /* #wrapper's pre-existing "min-height: 100%" (further up in this file)
    is a cosmetic "look at least one viewport tall on short pages" rule
    that resolves against the body/html height chain to exactly one
@@ -5382,19 +5400,21 @@ body.modal-open .panel_s:hover {
    #wrapper carries the fixed-header margin-top (see #wrapper's own
    rule), that combination pushes #wrapper's bottom edge margin-top
    pixels past the viewport, reintroducing page-level scroll on these
-   3 pages even though .content below is already correctly bounded.
+   pages even though .content below is already correctly bounded.
    Neutralized here (scoped, not touching #wrapper anywhere else) since
    .content's own bounded height already provides the "fill the
-   viewport" behavior these 3 pages need. */
+   viewport" behavior these pages need. */
 body.clients #wrapper,
 body.projects #wrapper,
-body.leads #wrapper {
+body.leads #wrapper,
+body.tasks #wrapper {
   min-height: 0;
 }
 
 body.clients .content,
 body.projects .content,
-body.leads .content.leads-table-view {
+body.leads .content.leads-table-view,
+body.tasks .content.tasks-table-view {
   display: flex;
   flex-direction: column;
   height: calc(100vh - var(--admin-navbar-height));
@@ -5447,9 +5467,32 @@ body.leads .content.leads-table-view > .row > .col-md-12 > .panel_s {
   display: flex;
   flex-direction: column;
 }
+
+/* Tasks only: .content has 3 top-level .row siblings directly under it
+   (KPI summary, the buttons/filters row, then the kanban-or-table row -
+   see manage.php) instead of the single .row the other 3 pages have.
+   The first two keep their natural height; only the last one (always
+   the table here, since Kanban mode never gets .tasks-table-view - see
+   manage.php) grows/shrinks to fill what's left. From .col-md-12 down
+   the structure is identical to Customers/Projects (.panel_s >
+   .panel-body > .panel-table-full), so it rejoins those same selectors
+   below. */
+body.tasks .content.tasks-table-view > .row:not(:last-child) {
+  flex-shrink: 0;
+}
+body.tasks .content.tasks-table-view > .row:last-child,
+body.tasks .content.tasks-table-view > .row:last-child > .col-md-12,
+body.tasks .content.tasks-table-view > .row:last-child > .col-md-12 > .panel_s {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 body.clients .panel_s > .panel-body,
 body.projects .panel_s > .panel-body,
-body.leads .content.leads-table-view .panel_s > .panel-body {
+body.leads .content.leads-table-view .panel_s > .panel-body,
+body.tasks .panel_s > .panel-body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -5464,12 +5507,14 @@ body.leads .content.leads-table-view .panel_s > .panel-body {
    mode never gets the .leads-table-view class these selectors require). */
 body.clients .panel-body > :not(.panel-table-full),
 body.projects .panel-body > :not(.panel-table-full),
-body.leads .content.leads-table-view .panel-body > :not(.tab-content) {
+body.leads .content.leads-table-view .panel-body > :not(.tab-content),
+body.tasks .panel-body > :not(.panel-table-full) {
   flex-shrink: 0;
 }
 body.clients .panel-body > .panel-table-full,
 body.projects .panel-body > .panel-table-full,
-body.leads .content.leads-table-view .panel-body > .tab-content {
+body.leads .content.leads-table-view .panel-body > .tab-content,
+body.tasks .panel-body > .panel-table-full {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -5507,7 +5552,8 @@ body.leads .content.leads-table-view .tab-content > .row > .col-md-12 > .panel-t
    div" (panel-table-full's one and only child, unambiguous). */
 body.clients .panel-table-full > div,
 body.projects .panel-table-full > div,
-body.leads .content.leads-table-view .panel-table-full > div {
+body.leads .content.leads-table-view .panel-table-full > div,
+body.tasks .panel-table-full > div {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -5520,7 +5566,8 @@ body.leads .content.leads-table-view .panel-table-full > div {
    independently-scrolling box). */
 body.clients .dataTables_wrapper,
 body.projects .dataTables_wrapper,
-body.leads .content.leads-table-view .dataTables_wrapper {
+body.leads .content.leads-table-view .dataTables_wrapper,
+body.tasks .dataTables_wrapper {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -5528,12 +5575,14 @@ body.leads .content.leads-table-view .dataTables_wrapper {
 }
 body.clients .dataTables_wrapper > :not(.table-responsive),
 body.projects .dataTables_wrapper > :not(.table-responsive),
-body.leads .content.leads-table-view .dataTables_wrapper > :not(.table-responsive) {
+body.leads .content.leads-table-view .dataTables_wrapper > :not(.table-responsive),
+body.tasks .dataTables_wrapper > :not(.table-responsive) {
   flex-shrink: 0;
 }
 body.clients .table-responsive,
 body.projects .table-responsive,
-body.leads .content.leads-table-view .table-responsive {
+body.leads .content.leads-table-view .table-responsive,
+body.tasks .table-responsive {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;

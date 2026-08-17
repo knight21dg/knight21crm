@@ -1,7 +1,16 @@
 <?php defined('BASEPATH') or exit('No direct script access allowed'); ?>
 <?php init_head(); ?>
+<?php
+// tasks-table-view: a CSS-only hook (assets/css/style.css, "Bounded,
+// independently-scrollable table region") that scopes the bounded
+// table-scroll-region / sticky-header layout to the table view
+// specifically - mirrors manage_leads.php's leads-table-view exactly -
+// so Kanban's own existing layout/scroll (never gets this class) stays
+// completely untouched.
+$isTasksKanban = $this->session->has_userdata('tasks_kanban_view') && $this->session->userdata('tasks_kanban_view') == 'true';
+?>
 <div id="wrapper">
-    <div class="content" id="vueApp">
+    <div class="content<?= $isTasksKanban ? '' : ' tasks-table-view'; ?>" id="vueApp">
         <div class="row">
             <?php if (! ($this->session->has_userdata('tasks_kanban_view')
                             && $this->session->userdata('tasks_kanban_view') == 'true')
